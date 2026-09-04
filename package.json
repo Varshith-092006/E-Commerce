@@ -17,6 +17,7 @@
     "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPattern=\"tests/unit\" --passWithNoTests",
     "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPattern=\"tests/integration\" --passWithNoTests --runInBand",
     "build:apps": "npm run build --workspaces --if-present",
+    "prisma:generate": "npm run prisma:generate --workspaces --if-present",
     "docker:up": "docker compose -f infra/docker-compose.yml up -d",
     "docker:down": "docker compose -f infra/docker-compose.yml down",
     "docker:reset": "docker compose -f infra/docker-compose.yml down -v && docker compose -f infra/docker-compose.yml up -d"
