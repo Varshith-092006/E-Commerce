@@ -1,0 +1,183 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "./client"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+enum NotificationChannel {
+  EMAIL
+  SMS
+  IN_APP
+  PUSH // Reserved for Phase 4
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum NotificationCategory {
+  ORDERS
+  PAYMENTS
+  ACCOUNT
+  MARKETING
+}
+
+model Notification {
+  id                  String               @id @default(uuid()) @db.Uuid
+  user_id             String               @db.Uuid
+  idempotency_key     String?              @db.VarChar(255)
+  event_id            String?              @db.VarChar(255)
+  source_service      String?              @db.VarChar(50)
+  template_code       String               @db.VarChar(100)
+  template_version    Int                  @default(1)
+  channel             NotificationChannel
+  category            NotificationCategory @default(ORDERS)
+  recipient           String               @db.VarChar(255)
+  subject             String?              @db.VarChar(255)
+  content             String               @db.Text
+  metadata            Json?
+  status              NotificationStatus   @default(PENDING)
+  error_reason        String?              @db.Text
+  provider_message_id String?              @db.VarChar(255)
+  attempt_count       Int                  @default(1)
+  last_attempted_at   DateTime?            @db.Timestamptz
+  is_read             Boolean              @default(false)
+  read_at             DateTime?            @db.Timestamptz
+  sent_at             DateTime?            @db.Timestamptz
+  created_at          DateTime             @default(now()) @db.Timestamptz
+  updated_at          DateTime             @updatedAt @db.Timestamptz
+
+  @@unique([user_id, channel, idempotency_key])
+  @@index([user_id, is_read, created_at(sort: Desc)])
+  @@index([user_id, channel, created_at(sort: Desc)])
+  @@index([status, created_at])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id               String   @id @default(uuid()) @db.Uuid
+  user_id          String   @unique @db.Uuid
+  email_enabled    Boolean  @default(true)
+  sms_enabled      Boolean  @default(true)
+  in_app_enabled   Boolean  @default(true)
+  orders_email     Boolean  @default(true)
+  orders_sms       Boolean  @default(true)
+  payments_email   Boolean  @default(true)
+  payments_sms     Boolean  @default(true)
+  marketing_email  Boolean  @default(true)
+  marketing_sms    Boolean  @default(false)
+  created_at       DateTime @default(now()) @db.Timestamptz
+  updated_at       DateTime @updatedAt @db.Timestamptz
+
+  @@index([user_id])
+  @@map("notification_preferences")
+}
+
+model NotificationTemplate {
+  id         String              @id @default(uuid()) @db.Uuid
+  code       String              @db.VarChar(100)
+  channel    NotificationChannel
+  version    Int                 @default(1)
+  subject    String?             @db.VarChar(255)
+  body       String              @db.Text
+  is_active  Boolean             @default(true)
+  created_at DateTime            @default(now()) @db.Timestamptz
+  updated_at DateTime            @updatedAt @db.Timestamptz
+
+  @@unique([code, channel, version])
+  @@index([code, is_active])
+  @@map("notification_templates")
+}
+
+model ProcessedEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  event_id       String   @db.VarChar(255)
+  consumer_group String   @db.VarChar(100)
+  event_type     String   @db.VarChar(100)
+  processed_at   DateTime @default(now()) @db.Timestamptz
+
+  @@unique([consumer_group, event_id])
+  @@index([consumer_group])
+  @@map("processed_events")
+}
+
+enum KafkaDlqStatus {
+  DEAD_LETTERED
+  REPLAYED
+  IGNORED
+}
+
+model KafkaDlqRecord {
+  id                 String         @id @default(uuid()) @db.Uuid
+  event_id           String         @db.VarChar(255)
+  event_type         String         @db.VarChar(100)
+  original_topic     String         @db.VarChar(100)
+  original_partition Int
+  original_offset    String         @db.VarChar(100)
+  consumer_group     String         @db.VarChar(100)
+  failure_reason     String?        @db.Text
+  error_message      String?        @db.Text
+  payload            Json
+  status             KafkaDlqStatus @default(DEAD_LETTERED)
+  replayed_topic     String?        @db.VarChar(100)
+  replayed_at        DateTime?      @db.Timestamptz
+  replayed_by        String?        @db.VarChar(100)
+  created_at         DateTime       @default(now()) @db.Timestamptz
+  updated_at         DateTime       @updatedAt @db.Timestamptz
+
+  @@unique([consumer_group, original_topic, original_partition, original_offset])
+  @@index([status])
+  @@index([original_topic])
+  @@index([event_id])
+  @@map("kafka_dlq_records")
+}
+
+// ─── Notification Outbox ─────────────────────────────────────────────────────
+// Provides reliable async notification delivery.
+// Notifications are first written to the DB (source of truth),
+// then the outbox relay worker dispatches them to external providers.
+// Failures are retried with exponential backoff up to max_retries.
+// Failed outbox records can be inspected and replayed.
+// Does NOT affect the SSE in-app notification path.
+enum NotificationOutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  DLQ
+}
+
+model NotificationOutbox {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  notification_id    String                  @db.Uuid          // FK to Notification record
+  user_id            String                  @db.Uuid
+  channel            NotificationChannel
+  recipient          String                  @db.VarChar(255)
+  subject            String?                 @db.VarChar(255)
+  content            String                  @db.Text
+  idempotency_key    String?                 @db.VarChar(255)
+  status             NotificationOutboxStatus @default(PENDING)
+  retry_count        Int                     @default(0)
+  max_retries        Int                     @default(3)
+  next_retry_at      DateTime?               @db.Timestamptz
+  locked_at          DateTime?               @db.Timestamptz
+  locked_by          String?                 @db.VarChar(100)
+  last_error         String?                 @db.Text
+  provider_message_id String?               @db.VarChar(255)
+  created_at         DateTime               @default(now()) @db.Timestamptz
+  sent_at            DateTime?              @db.Timestamptz
+
+  @@index([status, next_retry_at, created_at])
+  @@index([notification_id])
+  @@index([user_id, channel])
+  @@map("notification_outbox")
+}
+
+

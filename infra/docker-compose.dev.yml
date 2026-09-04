@@ -1,0 +1,28 @@
+version: '3.8'
+
+# Development Overlay: Exposes downstream microservice ports directly on localhost
+# Usage: docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d
+services:
+  identity-svc:
+    ports:
+      - "4001:4001"
+
+  catalog-svc:
+    ports:
+      - "4002:4002"
+
+  order-svc:
+    ports:
+      - "4003:4003"
+
+  payment-svc:
+    ports:
+      - "4004:4004"
+
+  fulfillment-svc:
+    ports:
+      - "4005:4005"
+
+  notification-svc:
+    ports:
+      - "4006:4006"

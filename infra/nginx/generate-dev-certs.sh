@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -e
+
+mkdir -p certs
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout certs/server.key \
+  -out certs/server.crt \
+  -subj "/C=US/ST=State/L=City/O=EcommercePlatform/OU=Engineering/CN=localhost"
+
+echo "Dev SSL certificates generated in infra/nginx/certs/"

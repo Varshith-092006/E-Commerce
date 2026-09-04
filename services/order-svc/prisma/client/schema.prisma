@@ -1,0 +1,200 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "./client"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+enum OrderStatus {
+  PLACED
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  PREPAID
+  COD
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  PUBLISHED
+  FAILED
+}
+
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model Cart {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @unique @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  items CartItem[]
+
+  @@index([user_id])
+  @@map("carts")
+}
+
+model CartItem {
+  id         String   @id @default(uuid()) @db.Uuid
+  cart_id    String   @db.Uuid
+  product_id String   @db.Uuid
+  seller_id  String   @db.Uuid
+  quantity   Int      @default(1)
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  cart Cart @relation(fields: [cart_id], references: [id], onDelete: Cascade)
+
+  @@unique([cart_id, product_id])
+  @@index([cart_id])
+  @@index([product_id])
+  @@map("cart_items")
+}
+
+model Order {
+  id                  String        @id @default(uuid()) @db.Uuid
+  order_number        String        @unique @db.VarChar(50)
+  user_id             String        @db.Uuid
+  status              OrderStatus   @default(PLACED)
+  payment_method      PaymentMethod
+  payment_id          String?       @db.Uuid
+  shipping_address    Json
+  pricing_snapshot    Json
+  coupon_code         String?       @db.VarChar(50)
+  discount_amount     Decimal       @default(0.00) @db.Decimal(12, 2)
+  total_amount        Decimal       @db.Decimal(12, 2)
+  customer_notes      String?       @db.Text
+  cancellation_reason String?       @db.Text
+  cancelled_at        DateTime?     @db.Timestamptz
+  cancelled_by        String?       @db.Uuid
+
+  // Phase 2G: Fulfillment & Courier Dispatch Metadata
+  courier_name    String?   @db.VarChar(100)
+  tracking_number String?   @db.VarChar(100)
+  shipped_at      DateTime? @db.Timestamptz
+  dispatched_by   String?   @db.Uuid
+
+  // Phase 2H: Last-Mile Delivery & Proof of Delivery (POD) Metadata
+  delivery_agent_name  String?   @db.VarChar(100)
+  delivery_agent_phone String?   @db.VarChar(30)
+  delivered_at         DateTime? @db.Timestamptz
+  pod_metadata         Json?
+  delivery_attempts    Int       @default(0)
+
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  items          OrderItem[]
+  status_history OrderStatusHistory[]
+
+  @@index([user_id])
+  @@index([status])
+  @@index([created_at])
+  @@index([tracking_number])
+  @@map("orders")
+}
+
+model OrderItem {
+  id         String      @id @default(uuid()) @db.Uuid
+  order_id   String      @db.Uuid
+  product_id String      @db.Uuid
+  seller_id  String      @db.Uuid
+  title      String      @db.VarChar(255)
+  unit_price Decimal     @db.Decimal(12, 2)
+  quantity   Int
+  subtotal   Decimal     @db.Decimal(12, 2)
+  image_url  String?     @db.VarChar(500)
+  status     OrderStatus @default(PLACED)
+  created_at DateTime    @default(now()) @db.Timestamptz
+  updated_at DateTime    @updatedAt @db.Timestamptz
+
+  order Order @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id])
+  @@index([seller_id])
+  @@index([product_id])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id          String       @id @default(uuid()) @db.Uuid
+  order_id    String       @db.Uuid
+  from_status OrderStatus?
+  to_status   OrderStatus
+  changed_by  String       @db.Uuid
+  actor_role  String       @db.VarChar(20)
+  reason      String?      @db.Text
+  created_at  DateTime     @default(now()) @db.Timestamptz
+
+  order Order @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id, created_at])
+  @@index([changed_by, created_at])
+  @@index([order_id, to_status])
+  @@map("order_status_history")
+}
+
+model OrderOutbox {
+  id             String       @id @default(uuid()) @db.Uuid
+  event_type     String       @db.VarChar(100)
+  aggregate_type String       @default("Order") @db.VarChar(50)
+  aggregate_id   String       @db.Uuid
+  payload        Json
+  status         OutboxStatus @default(PENDING)
+  retry_count    Int          @default(0)
+  max_retries    Int          @default(5)
+  next_retry_at  DateTime?    @db.Timestamptz
+  locked_at      DateTime?    @db.Timestamptz
+  locked_by      String?      @db.VarChar(100)
+  last_error     String?      @db.Text
+  created_at     DateTime     @default(now()) @db.Timestamptz
+  processed_at   DateTime?    @db.Timestamptz
+
+  @@index([status, next_retry_at, created_at])
+  @@map("order_outbox")
+}
+
+model IdempotencyRecord {
+  id               String            @id @default(uuid()) @db.Uuid
+  user_id          String            @db.Uuid
+  idempotency_key  String            @db.VarChar(255)
+  request_hash     String            @db.VarChar(64)
+  status           IdempotencyStatus @default(IN_PROGRESS)
+  order_id         String?           @db.Uuid
+  response_payload Json?
+  created_at       DateTime          @default(now()) @db.Timestamptz
+  completed_at     DateTime?         @db.Timestamptz
+
+  @@unique([user_id, idempotency_key])
+  @@index([user_id])
+  @@index([status])
+  @@map("idempotency_records")
+}
+
+model ProcessedEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  event_id       String   @db.VarChar(255)
+  consumer_group String   @db.VarChar(100)
+  event_type     String   @db.VarChar(100)
+  processed_at   DateTime @default(now()) @db.Timestamptz
+
+  @@unique([consumer_group, event_id])
+  @@index([consumer_group])
+  @@map("processed_events")
+}

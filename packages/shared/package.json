@@ -1,0 +1,27 @@
+{
+  "name": "@ecommerce/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./errors": "./src/errors/index.js",
+    "./middleware": "./src/middleware/index.js",
+    "./utils": "./src/utils/index.js",
+    "./constants": "./src/constants/index.js",
+    "./kafka": "./src/kafka/index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "ioredis": "^5.11.1",
+    "jsonwebtoken": "^9.0.3",
+    "kafkajs": "^2.2.4",
+    "pino": "^9.1.2",
+    "uuid": "^10.0.0"
+  },
+  "devDependencies": {
+    "pino-pretty": "^11.1.0"
+  }
+}

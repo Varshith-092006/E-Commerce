@@ -1,0 +1,593 @@
+version: '3.8'
+
+services:
+  # -------------------------------------------------------------
+  # Core Infrastructure
+  # -------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecommerce-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - ecommerce-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - ecommerce-net
+
+  # Kafka & Zookeeper
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: ecommerce-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_4LW_COMMANDS_WHITELIST: "ruok,srvr,stat,isro"
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    healthcheck:
+      test: ["CMD-SHELL", "echo srvr | nc localhost 2181 | grep Mode || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ecommerce-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: ecommerce-kafka
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # PLAINTEXT (port 29092) is for inter-container communication
+      # PLAINTEXT_HOST (port 9092) is for host-machine access (development tools)
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Reduce log retention for dev environment
+      KAFKA_LOG_RETENTION_HOURS: 24
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      # Check Kafka broker is accepting connections on the internal listener
+      test: ["CMD-SHELL", "nc -z localhost 29092 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    networks:
+      - ecommerce-net
+
+  # -------------------------------------------------------------
+  # Monitoring: Prometheus + Grafana
+  # -------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: ecommerce-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+    depends_on:
+      - gateway
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ecommerce-net
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: ecommerce-grafana
+    restart: unless-stopped
+    ports:
+      - "3003:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_SERVER_ROOT_URL: http://localhost:3003
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - ecommerce-net
+
+  # -------------------------------------------------------------
+  # Infrastructure Web GUIs (Redis & Kafka Dashboards)
+  # -------------------------------------------------------------
+  redis-gui:
+    image: rediscommander/redis-commander:latest
+    container_name: ecommerce-redis-gui
+    restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - ecommerce-net
+
+  kafka-gui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: ecommerce-kafka-gui
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: ecommerce-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ecommerce-net
+
+  # -------------------------------------------------------------
+  # API Gateway / BFF
+  # -------------------------------------------------------------
+  gateway:
+    build:
+      context: ..
+      dockerfile: services/gateway/Dockerfile
+    container_name: ecommerce-gateway
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      NODE_ENV: production
+      REDIS_URL: redis://redis:6379
+      INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
+      JWT_SECRET: ${JWT_SECRET:-ecom_jwt_secret_dev_2026_test_key_32_chars}
+      IDENTITY_SVC_URL: http://identity-svc:4001
+      CATALOG_SVC_URL: http://catalog-svc:4002
+      ORDER_SVC_URL: http://order-svc:4003
+      PAYMENT_SVC_URL: http://payment-svc:4004
+      FULFILLMENT_SVC_URL: http://fulfillment-svc:4005
+      NOTIFICATION_SVC_URL: http://notification-svc:4006
+    ports:
+      - "4000:4000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      identity-svc:
+        condition: service_started
+      catalog-svc:
+        condition: service_started
+      order-svc:
+        condition: service_started
+      payment-svc:
+        condition: service_started
+      fulfillment-svc:
+        condition: service_started
+      notification-svc:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    networks:
+      - ecommerce-net
+
+  # -------------------------------------------------------------
+  # Microservices (Shielded on internal network in production)
+  # -------------------------------------------------------------
+  identity-svc:
+    build:
+      context: ..
+      dockerfile: services/identity-svc/Dockerfile
+    container_name: ecommerce-identity-svc
+    restart: unless-stopped
+    environment:
+      PORT: 4001
+      NODE_ENV: production
+      DATABASE_URL: ${IDENTITY_DATABASE_URL}
+      INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
+      JWT_SECRET: ${JWT_SECRET:-ecom_jwt_secret_dev_2026_test_key_32_chars}
+    expose:
+      - "4001"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ecommerce-net
+
+  catalog-svc:
+    build:
+      context: ..
+      dockerfile: services/catalog-svc/Dockerfile
+    container_name: ecommerce-catalog-svc
+    restart: unless-stopped
+    environment:
+      PORT: 4002
+      NODE_ENV: production
+      DATABASE_URL: ${CATALOG_DATABASE_URL}
+      INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
+    expose:
+      - "4002"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ecommerce-net
+
+  order-svc:
+    build:
+      context: ..
+      dockerfile: services/order-svc/Dockerfile
+    container_name: ecommerce-order-svc
+    restart: unless-stopped
+    environment:
+      PORT: 4003
+      NODE_ENV: production
+      DATABASE_URL: ${ORDER_DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      # IMPORTANT: Always use kafka:29092 (internal listener) inside containers
+      KAFKA_BROKERS: kafka:29092
+      INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
+      START_OUTBOX_WORKERS: "true"
+      START_KAFKA_CONSUMERS: "true"
+      CATALOG_SVC_URL: http://catalog-svc:4002
+      IDENTITY_SVC_URL: http://identity-svc:4001
+      PAYMENT_SVC_URL: http://payment-svc:4004
+      FULFILLMENT_SVC_URL: http://fulfillment-svc:4005
+      NOTIFICATION_SVC_URL: http://notification-svc:4006
+    expose:
+      - "4003"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ecommerce-net
+
+  payment-svc:
+    build:
+      context: ..
+      dockerfile: services/payment-svc/Dockerfile
+    container_name: ecommerce-payment-svc
+    restart: unless-stopped
+    environment:
+      PORT: 4004
+      NODE_ENV: production
+      DATABASE_URL: ${PAYMENT_DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:29092
+      INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
+      START_OUTBOX_WORKERS: "true"
+      START_KAFKA_CONSUMERS: "true"
+      ORDER_SVC_URL: http://order-svc:4003
+      FULFILLMENT_SVC_URL: http://fulfillment-svc:4005
+      NOTIFICATION_SVC_URL: http://notification-svc:4006
+      # Razorpay credentials (set in .env or Docker secrets)
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+    expose:
+      - "4004"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ecommerce-net
+
+  fulfillment-svc:
+    build:
+      context: ..
+      dockerfile: services/fulfillment-svc/Dockerfile
+    container_name: ecommerce-fulfillment-svc
+    restart: unless-stopped
+    environment:
+      PORT: 4005
+      NODE_ENV: production
+      DATABASE_URL: ${FULFILLMENT_DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:29092
+      INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
+      START_OUTBOX_WORKERS: "true"
+      START_KAFKA_CONSUMERS: "true"
+      ORDER_SVC_URL: http://order-svc:4003
+      CATALOG_SVC_URL: http://catalog-svc:4002
+      NOTIFICATION_SVC_URL: http://notification-svc:4006
+      # Courier credentials (optional — services fall back to mock if not set)
+      DELHIVERY_API_TOKEN: ${DELHIVERY_API_TOKEN:-}
+      SHIPROCKET_EMAIL: ${SHIPROCKET_EMAIL:-}
+      SHIPROCKET_PASSWORD: ${SHIPROCKET_PASSWORD:-}
+    expose:
+      - "4005"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ecommerce-net
+
+  notification-svc:
+    build:
+      context: ..
+      dockerfile: services/notification-svc/Dockerfile
+    container_name: ecommerce-notification-svc
+    restart: unless-stopped
+    environment:
+      PORT: 4006
+      NODE_ENV: production
+      DATABASE_URL: ${NOTIFICATION_DATABASE_URL}
+      REDIS_URL: redis://redis:6379
+      KAFKA_BROKERS: kafka:29092
+      INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
+      START_OUTBOX_WORKERS: "true"
+      START_KAFKA_CONSUMERS: "true"
+      # SMTP email (optional — falls back to mock if not set in dev, fails in production)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-no-reply@ecommerce.local}
+      # Twilio SMS (optional — falls back to mock if not set in dev, fails in production)
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER:-}
+    expose:
+      - "4006"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 384M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    networks:
+      - ecommerce-net
+
+  # -------------------------------------------------------------
+  # Frontend Applications
+  # -------------------------------------------------------------
+  customer-web:
+    build:
+      context: ..
+      dockerfile: apps/customer-web/Dockerfile
+    container_name: ecommerce-customer-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - ecommerce-net
+
+  seller-web:
+    build:
+      context: ..
+      dockerfile: apps/seller-web/Dockerfile
+    container_name: ecommerce-seller-web
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - ecommerce-net
+
+  admin-web:
+    build:
+      context: ..
+      dockerfile: apps/admin-web/Dockerfile
+    container_name: ecommerce-admin-web
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - ecommerce-net
+
+  # -------------------------------------------------------------
+  # Nginx Reverse Proxy (HTTPS Termination & Routing)
+  # -------------------------------------------------------------
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ecommerce-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - gateway
+      - customer-web
+      - seller-web
+      - admin-web
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - ecommerce-net
+
+networks:
+  ecommerce-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  zookeeper_data:
+  kafka_data:
+  prometheus_data:
+  grafana_data:

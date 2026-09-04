@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'Ecommerce Platform'
+    orgId: 1
+    folder: 'Ecommerce'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

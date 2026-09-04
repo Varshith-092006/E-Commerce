@@ -1,0 +1,337 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "./client"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+enum ReservationStatus {
+  HELD
+  COMMITTED
+  RELEASED
+  EXPIRED
+}
+
+enum ShipmentStatus {
+  ALLOCATED
+  PACKED
+  DISPATCHED
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED_DELIVERY
+  RETURNED_TO_ORIGIN
+  CANCELLED
+}
+
+enum ReturnPickupStatus {
+  REQUESTED
+  PICKUP_SCHEDULED
+  OUT_FOR_PICKUP
+  PICKED_UP
+  IN_TRANSIT
+  RECEIVED_AT_WAREHOUSE
+  INSPECTED
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum InspectionGrade {
+  PASS
+  DAMAGED
+  DEFECTIVE
+  WRONG_ITEM
+  MISSING_ACCESSORIES
+}
+
+enum CourierCode {
+  DELHIVERY
+  BLUEDART
+  SHIPROCKET
+  EKART
+  INTERNAL_FLEET
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  PUBLISHED
+  FAILED
+}
+
+model Warehouse {
+  id            String   @id @default(uuid()) @db.Uuid
+  code          String   @unique @db.VarChar(50)
+  name          String   @db.VarChar(100)
+  address_line1 String   @db.VarChar(255)
+  address_line2 String?  @db.VarChar(255)
+  city          String   @db.VarChar(100)
+  state         String   @db.VarChar(100)
+  postal_code   String   @db.VarChar(20)
+  country       String   @default("IN") @db.VarChar(50)
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now()) @db.Timestamptz
+  updated_at    DateTime @updatedAt @db.Timestamptz
+
+  inventory_items InventoryItem[]
+  shipments       Shipment[]
+  return_pickups  ReturnPickup[]
+
+  @@index([code])
+  @@index([is_active])
+  @@index([postal_code])
+  @@map("warehouses")
+}
+
+model InventoryItem {
+  id                 String   @id @default(uuid()) @db.Uuid
+  product_id         String   @db.Uuid
+  sku                String   @db.VarChar(100)
+  seller_id          String?  @db.Uuid
+  warehouse_id       String   @db.Uuid
+  quantity_on_hand   Int      @default(0)
+  quantity_reserved  Int      @default(0)
+  quantity_allocated Int      @default(0)
+  safety_stock       Int      @default(0)
+  reorder_threshold  Int      @default(10)
+  version            Int      @default(1)
+  is_active          Boolean  @default(true)
+  created_at         DateTime @default(now()) @db.Timestamptz
+  updated_at         DateTime @updatedAt @db.Timestamptz
+
+  warehouse         Warehouse         @relation(fields: [warehouse_id], references: [id], onDelete: Restrict)
+  reservation_items ReservationItem[]
+
+  @@unique([warehouse_id, sku])
+  @@index([product_id])
+  @@index([sku])
+  @@index([seller_id])
+  @@index([warehouse_id])
+  @@index([is_active])
+  @@map("inventory_items")
+}
+
+model InventoryReservation {
+  id              String            @id @default(uuid()) @db.Uuid
+  reservation_key String            @unique @db.VarChar(255)
+  user_id         String            @db.Uuid
+  order_id        String?           @db.Uuid
+  status          ReservationStatus @default(HELD)
+  expires_at      DateTime          @db.Timestamptz
+  committed_at    DateTime?         @db.Timestamptz
+  released_at     DateTime?         @db.Timestamptz
+  expired_at      DateTime?         @db.Timestamptz
+  created_at      DateTime          @default(now()) @db.Timestamptz
+  updated_at      DateTime          @updatedAt @db.Timestamptz
+
+  items ReservationItem[]
+
+  @@index([user_id])
+  @@index([order_id])
+  @@index([status, expires_at])
+  @@index([created_at])
+  @@map("inventory_reservations")
+}
+
+model ReservationItem {
+  id                String   @id @default(uuid()) @db.Uuid
+  reservation_id    String   @db.Uuid
+  inventory_item_id String   @db.Uuid
+  product_id        String   @db.Uuid
+  sku               String   @db.VarChar(100)
+  quantity          Int
+  created_at        DateTime @default(now()) @db.Timestamptz
+  updated_at        DateTime @updatedAt @db.Timestamptz
+
+  reservation    InventoryReservation @relation(fields: [reservation_id], references: [id], onDelete: Cascade)
+  inventory_item InventoryItem        @relation(fields: [inventory_item_id], references: [id], onDelete: Restrict)
+
+  @@unique([reservation_id, inventory_item_id])
+  @@index([reservation_id])
+  @@index([inventory_item_id])
+  @@index([product_id])
+  @@index([sku])
+  @@map("reservation_items")
+}
+
+model Shipment {
+  id                 String         @id @default(uuid()) @db.Uuid
+  shipment_number    String         @unique @db.VarChar(50)
+  order_id           String         @db.Uuid
+  user_id            String         @db.Uuid
+  warehouse_id       String         @db.Uuid
+  reservation_id     String?        @db.Uuid
+  status             ShipmentStatus @default(ALLOCATED)
+  courier_code       CourierCode    @default(INTERNAL_FLEET)
+  tracking_number    String?        @unique @db.VarChar(100)
+  shipping_address   Json
+  label_url          String?        @db.VarChar(500)
+  manifest_id        String?        @db.VarChar(100)
+  estimated_delivery DateTime?      @db.Timestamptz
+  dispatched_at      DateTime?      @db.Timestamptz
+  delivered_at       DateTime?      @db.Timestamptz
+  delivery_notes     String?        @db.Text
+  pod_signature      String?        @db.VarChar(500)
+  pod_received_by    String?        @db.VarChar(100)
+  pod_received_at    DateTime?      @db.Timestamptz
+  created_at         DateTime       @default(now()) @db.Timestamptz
+  updated_at         DateTime       @updatedAt @db.Timestamptz
+
+  warehouse        Warehouse        @relation(fields: [warehouse_id], references: [id], onDelete: Restrict)
+  items            ShipmentItem[]
+  tracking_updates TrackingUpdate[]
+
+  @@index([order_id])
+  @@index([user_id])
+  @@index([warehouse_id])
+  @@index([reservation_id])
+  @@index([status])
+  @@index([tracking_number])
+  @@index([created_at])
+  @@map("shipments")
+}
+
+model ShipmentItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  shipment_id String   @db.Uuid
+  product_id  String   @db.Uuid
+  sku         String   @db.VarChar(100)
+  seller_id   String?  @db.Uuid
+  quantity    Int
+  unit_price  Decimal? @db.Decimal(12, 2)
+  created_at  DateTime @default(now()) @db.Timestamptz
+  updated_at  DateTime @updatedAt @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipment_id], references: [id], onDelete: Cascade)
+
+  @@index([shipment_id])
+  @@index([product_id])
+  @@index([sku])
+  @@index([seller_id])
+  @@map("shipment_items")
+}
+
+model TrackingUpdate {
+  id          String         @id @default(uuid()) @db.Uuid
+  shipment_id String         @db.Uuid
+  status      ShipmentStatus
+  location    String?        @db.VarChar(100)
+  description String         @db.VarChar(255)
+  recorded_by String?        @db.Uuid
+  recorded_at DateTime       @default(now()) @db.Timestamptz
+
+  shipment Shipment @relation(fields: [shipment_id], references: [id], onDelete: Cascade)
+
+  @@index([shipment_id, recorded_at])
+  @@map("tracking_updates")
+}
+
+model ReturnPickup {
+  id                     String             @id @default(uuid()) @db.Uuid
+  return_number          String             @unique @db.VarChar(50)
+  order_id               String             @db.Uuid
+  user_id                String             @db.Uuid
+  warehouse_id           String             @db.Uuid
+  status                 ReturnPickupStatus @default(REQUESTED)
+  courier_code           CourierCode        @default(INTERNAL_FLEET)
+  return_tracking_number String?            @unique @db.VarChar(100)
+  pickup_address         Json
+  scheduled_pickup_date  DateTime?          @db.Timestamptz
+  picked_up_at           DateTime?          @db.Timestamptz
+  received_at            DateTime?          @db.Timestamptz
+  completed_at           DateTime?          @db.Timestamptz
+  pop_signature          String?            @db.VarChar(500)
+  pop_received_by        String?            @db.VarChar(100)
+  cancellation_reason    String?            @db.Text
+  created_at             DateTime           @default(now()) @db.Timestamptz
+  updated_at             DateTime           @updatedAt @db.Timestamptz
+
+  warehouse        Warehouse              @relation(fields: [warehouse_id], references: [id], onDelete: Restrict)
+  items            ReturnItem[]
+  tracking_updates ReturnTrackingUpdate[]
+
+  @@index([order_id])
+  @@index([user_id])
+  @@index([warehouse_id])
+  @@index([status])
+  @@index([return_tracking_number])
+  @@index([created_at])
+  @@map("return_pickups")
+}
+
+model ReturnItem {
+  id               String           @id @default(uuid()) @db.Uuid
+  return_pickup_id String           @db.Uuid
+  product_id       String           @db.Uuid
+  sku              String           @db.VarChar(100)
+  seller_id        String?          @db.Uuid
+  quantity         Int
+  reason           String           @db.VarChar(255)
+  inspection_grade InspectionGrade?
+  inspection_notes String?          @db.Text
+  is_restocked     Boolean          @default(false)
+  restocked_at     DateTime?        @db.Timestamptz
+  created_at       DateTime         @default(now()) @db.Timestamptz
+  updated_at       DateTime         @updatedAt @db.Timestamptz
+
+  return_pickup ReturnPickup @relation(fields: [return_pickup_id], references: [id], onDelete: Cascade)
+
+  @@index([return_pickup_id])
+  @@index([product_id])
+  @@index([sku])
+  @@index([seller_id])
+  @@map("return_items")
+}
+
+model ReturnTrackingUpdate {
+  id               String             @id @default(uuid()) @db.Uuid
+  return_pickup_id String             @db.Uuid
+  status           ReturnPickupStatus
+  location         String?            @db.VarChar(100)
+  description      String             @db.VarChar(255)
+  recorded_by      String?            @db.Uuid
+  recorded_at      DateTime           @default(now()) @db.Timestamptz
+
+  return_pickup ReturnPickup @relation(fields: [return_pickup_id], references: [id], onDelete: Cascade)
+
+  @@index([return_pickup_id, recorded_at])
+  @@map("return_tracking_updates")
+}
+
+model FulfillmentOutbox {
+  id             String       @id @default(uuid()) @db.Uuid
+  event_type     String       @db.VarChar(100)
+  aggregate_type String       @default("Inventory") @db.VarChar(50)
+  aggregate_id   String       @db.Uuid
+  payload        Json
+  status         OutboxStatus @default(PENDING)
+  retry_count    Int          @default(0)
+  max_retries    Int          @default(5)
+  next_retry_at  DateTime?    @db.Timestamptz
+  locked_at      DateTime?    @db.Timestamptz
+  locked_by      String?      @db.VarChar(100)
+  last_error     String?      @db.Text
+  created_at     DateTime     @default(now()) @db.Timestamptz
+  processed_at   DateTime?    @db.Timestamptz
+
+  @@index([status, next_retry_at, created_at])
+  @@map("fulfillment_outbox")
+}
+
+model ProcessedEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  event_id       String   @db.VarChar(255)
+  consumer_group String   @db.VarChar(100)
+  event_type     String   @db.VarChar(100)
+  processed_at   DateTime @default(now()) @db.Timestamptz
+
+  @@unique([consumer_group, event_id])
+  @@index([consumer_group])
+  @@map("processed_events")
+}

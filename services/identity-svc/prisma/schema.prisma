@@ -1,0 +1,153 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "./client"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+enum Role {
+  CUSTOMER
+  SELLER
+  ADMIN
+  COURIER
+  LOGISTICS
+}
+
+
+enum SellerStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+enum TokenType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+model User {
+  id                  String               @id @default(uuid()) @db.Uuid
+  email               String               @unique @db.VarChar(255)
+  phone               String?              @db.VarChar(20)
+  password_hash       String               @db.VarChar(255)
+  first_name          String               @db.VarChar(100)
+  last_name           String               @db.VarChar(100)
+  role                Role                 @default(CUSTOMER)
+  is_verified         Boolean              @default(false)
+  is_active           Boolean              @default(true)
+  created_at          DateTime             @default(now()) @db.Timestamptz
+  updated_at          DateTime             @updatedAt @db.Timestamptz
+
+  seller              Seller?
+  addresses           Address[]
+  refresh_tokens      RefreshToken[]
+  verification_tokens VerificationToken[]
+
+  @@map("users")
+}
+
+model Seller {
+  id               String       @id @default(uuid()) @db.Uuid
+  user_id          String       @unique @db.Uuid
+  business_name    String       @db.VarChar(255)
+  store_slug       String       @unique @db.VarChar(255)
+  gstin            String?      @db.VarChar(50)
+  pan              String?      @db.VarChar(50)
+  business_address String?      @db.Text
+  status           SellerStatus @default(PENDING)
+  rejection_reason String?      @db.Text
+  created_at       DateTime     @default(now()) @db.Timestamptz
+  updated_at       DateTime     @updatedAt @db.Timestamptz
+
+  user             User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("sellers")
+}
+
+model Address {
+  id             String   @id @default(uuid()) @db.Uuid
+  user_id        String   @db.Uuid
+  full_name      String   @db.VarChar(150)
+  phone          String   @db.VarChar(20)
+  street_address String   @db.Text
+  city           String   @db.VarChar(100)
+  state          String   @db.VarChar(100)
+  postal_code    String   @db.VarChar(20)
+  country        String   @default("India") @db.VarChar(100)
+  is_default     Boolean  @default(false)
+  created_at     DateTime @default(now()) @db.Timestamptz
+  updated_at     DateTime @updatedAt @db.Timestamptz
+
+  user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@map("addresses")
+}
+
+model RefreshToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  token_hash String   @unique @db.VarChar(255)
+  expires_at DateTime @db.Timestamptz
+  is_revoked Boolean  @default(false)
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @updatedAt @db.Timestamptz
+
+  user       User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([token_hash])
+  @@map("refresh_tokens")
+}
+
+model VerificationToken {
+  id            String    @id @default(uuid()) @db.Uuid
+  user_id       String    @db.Uuid
+  token_hash    String    @db.VarChar(255)
+  type          TokenType
+  attempt_count Int       @default(0)
+  resend_count  Int       @default(0)
+  last_sent_at  DateTime  @default(now()) @db.Timestamptz
+  expires_at    DateTime  @db.Timestamptz
+  used_at       DateTime? @db.Timestamptz
+  created_at    DateTime  @default(now()) @db.Timestamptz
+
+  user          User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([token_hash])
+  @@map("verification_tokens")
+}
+
+// ─── Admin Audit Logging ─────────────────────────────────────────────────────
+// Captures security-significant actions: role assignments, logins, auth events.
+// Does NOT store passwords, secrets, or card details.
+model AuditLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  actor_id      String?  @db.Uuid          // user who performed the action (null = system)
+  actor_role    String   @db.VarChar(20)   // role at time of action
+  actor_email   String?  @db.VarChar(255)  // for cross-reference only
+  service       String   @db.VarChar(50)   // originating service
+  event_type    String   @db.VarChar(100)  // e.g. "user.role_assigned", "auth.login"
+  resource_type String?  @db.VarChar(50)   // e.g. "User", "Seller"
+  resource_id   String?  @db.VarChar(100)  // ID of affected resource
+  trace_id      String?  @db.VarChar(100)
+  request_id    String?  @db.VarChar(100)
+  metadata      Json?                       // safe additional context (no secrets)
+  ip_address    String?  @db.VarChar(45)
+  created_at    DateTime @default(now()) @db.Timestamptz
+
+  @@index([actor_id, created_at(sort: Desc)])
+  @@index([service, created_at(sort: Desc)])
+  @@index([event_type, created_at(sort: Desc)])
+  @@index([trace_id])
+  @@index([request_id])
+  @@index([created_at(sort: Desc)])
+  @@map("audit_logs")
+}
+
