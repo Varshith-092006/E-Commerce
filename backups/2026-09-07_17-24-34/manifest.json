@@ -1,0 +1,57 @@
+{
+  "backupId": "backup_2026-09-07_17-24-34",
+  "createdAt": "2026-09-07T17:24:34.275Z",
+  "postgresVersion": "pg_dump (PostgreSQL) 16.15",
+  "databases": [
+    {
+      "name": "identity_db",
+      "file": "identity_db.sql",
+      "sizeBytes": 13104,
+      "sha256": "e6d71f6fd901336baf8317a92fb35dc8910ecd0a62a8c4f5de732e97c5732e6f",
+      "durationMs": 648,
+      "status": "VALID"
+    },
+    {
+      "name": "catalog_db",
+      "file": "catalog_db.sql",
+      "sizeBytes": 21411,
+      "sha256": "9fd58f0d6984a1876c82159e0f48f685b8b5d74f8facd0018c45ddf86ed60826",
+      "durationMs": 677,
+      "status": "VALID"
+    },
+    {
+      "name": "order_db",
+      "file": "order_db.sql",
+      "sizeBytes": 21564,
+      "sha256": "1dbe7370643565f58964d1ee2f2cd19e12664a7fc35ac83fd248011aa586de9f",
+      "durationMs": 584,
+      "status": "VALID"
+    },
+    {
+      "name": "payment_db",
+      "file": "payment_db.sql",
+      "sizeBytes": 10374,
+      "sha256": "6194116b40f291c7da872328112ec657f068f1392417d95fa851b95737a99aef",
+      "durationMs": 748,
+      "status": "VALID"
+    },
+    {
+      "name": "fulfillment_db",
+      "file": "fulfillment_db.sql",
+      "sizeBytes": 33682,
+      "sha256": "1ae0eeefb99274f186b627ad40d1e664bede1ff6aab57739b078846991cbe55f",
+      "durationMs": 545,
+      "status": "VALID"
+    },
+    {
+      "name": "notification_db",
+      "file": "notification_db.sql",
+      "sizeBytes": 9766937,
+      "sha256": "e35bb11068183a1a335aa90b10328f7073cca4586cda238c208583aa3915c732",
+      "durationMs": 2727,
+      "status": "VALID"
+    }
+  ],
+  "totalDurationMs": 6349,
+  "status": "VALID"
+}

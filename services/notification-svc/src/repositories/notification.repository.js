@@ -1,8 +1,26 @@
+import { getRedisClient, CacheService, CacheKeys } from '@ecommerce/shared';
+
 import { prisma as defaultPrisma } from '../lib/prisma.js';
+import { config } from '../config/index.js';
 
 export class NotificationRepository {
-  constructor(prismaClient = defaultPrisma) {
+  constructor(prismaClient = defaultPrisma, cacheService = null) {
     this.prisma = prismaClient;
+    if (cacheService) {
+      this.cache = cacheService;
+    } else {
+      try {
+        const redis = config.redisUrl ? getRedisClient(config.redisUrl) : null;
+        this.cache = new CacheService({
+          redisClient: redis,
+          enabled: config.cache?.enabled !== false,
+          defaultNamespace: 'notification',
+          defaultTtl: config.cache?.preferencesTtl || 300,
+        });
+      } catch {
+        this.cache = new CacheService({ redisClient: null, enabled: false });
+      }
+    }
   }
 
   /**
@@ -95,9 +113,17 @@ export class NotificationRepository {
   }
 
   /**
-   * Find paginated notifications for a specific user
+   * Find paginated notifications for a specific user.
+   * Supports both cursor pagination (keyset logic) and offset pagination.
    */
-  async findUserNotifications({ userId, channel = 'IN_APP', isRead = null, page = 1, limit = 20 }) {
+  async findUserNotifications({
+    userId,
+    channel = 'IN_APP',
+    isRead = null,
+    page = 1,
+    limit = 20,
+    cursor = null,
+  }) {
     const where = {
       user_id: userId,
       channel,
@@ -107,6 +133,29 @@ export class NotificationRepository {
       where.is_read = isRead;
     }
 
+    // Keyset cursor pagination (no skip/offset, deterministic sort by created_at DESC, id DESC)
+    if (cursor) {
+      where.AND = where.AND || [];
+      where.AND.push({
+        OR: [
+          { created_at: { lt: new Date(cursor.createdAt) } },
+          {
+            created_at: new Date(cursor.createdAt),
+            id: { lt: cursor.id },
+          },
+        ],
+      });
+
+      const items = await this.prisma.notification.findMany({
+        where,
+        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+        take: limit + 1,
+      });
+
+      return { items, isCursor: true };
+    }
+
+    // Offset pagination fallback
     const skip = (page - 1) * limit;
 
     const [items, total] = await Promise.all([
@@ -119,7 +168,7 @@ export class NotificationRepository {
       this.prisma.notification.count({ where }),
     ]);
 
-    return { items, total };
+    return { items, total, isCursor: false };
   }
 
   /**
@@ -171,19 +220,30 @@ export class NotificationRepository {
   }
 
   /**
-   * Find user notification preferences
+   * Find user notification preferences with cache-aside
    */
   async findPreferencesByUserId(userId) {
-    return await this.prisma.notificationPreference.findUnique({
-      where: { user_id: userId },
-    });
+    if (!userId) {
+      return null;
+    }
+    const cacheKey = CacheKeys.notification.preferences(userId);
+
+    return await this.cache.getOrSet(
+      cacheKey,
+      async () => {
+        return await this.prisma.notificationPreference.findUnique({
+          where: { user_id: userId },
+        });
+      },
+      config.cache?.preferencesTtl || 300,
+    );
   }
 
   /**
-   * Upsert user notification preferences
+   * Upsert user notification preferences with cache invalidation
    */
   async upsertPreferences(userId, data) {
-    return await this.prisma.notificationPreference.upsert({
+    const preferences = await this.prisma.notificationPreference.upsert({
       where: { user_id: userId },
       create: {
         user_id: userId,
@@ -209,6 +269,10 @@ export class NotificationRepository {
         marketing_sms: data.marketingSms !== undefined ? data.marketingSms : undefined,
       },
     });
+
+    // Invalidate preferences cache after database commit
+    await this.cache.delete(CacheKeys.notification.preferences(userId));
+    return preferences;
   }
 
   /**

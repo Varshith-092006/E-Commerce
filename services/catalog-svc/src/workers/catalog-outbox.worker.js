@@ -68,29 +68,23 @@ export class CatalogOutboxWorker {
     const productId = data.productId || event.aggregate_id;
 
     if (this.useKafka) {
-      try {
-        const envelope = KafkaEventEnvelope.create({
-          eventId,
-          eventType,
-          sourceService: 'catalog-svc',
-          aggregateType: 'ProductReview',
-          aggregateId: String(productId || ''),
-          payload: data,
-        });
+      const envelope = KafkaEventEnvelope.create({
+        eventId,
+        eventType,
+        eventVersion: 1,
+        sourceService: 'catalog-svc',
+        aggregateType: 'ProductReview',
+        aggregateId: String(productId || ''),
+        payload: data,
+      });
 
-        await this.kafkaProducer.publish({
-          topic: KafkaTopics.REVIEW_EVENTS,
-          key: String(productId || eventId),
-          eventEnvelope: envelope,
-        });
+      await this.kafkaProducer.publish({
+        topic: KafkaTopics.REVIEW_EVENTS,
+        key: String(productId || eventId),
+        eventEnvelope: envelope,
+      });
 
-        return { processed: true, eventId, eventType, transport: 'kafka' };
-      } catch (kafkaErr) {
-        this.logger.warn(
-          { err: kafkaErr.message, eventId, eventType },
-          'Kafka publish failed in CatalogOutboxWorker; applying in-process aggregation fallback',
-        );
-      }
+      return { processed: true, eventId, eventType, transport: 'kafka' };
     }
 
     // Direct in-process fallback when Kafka is not running

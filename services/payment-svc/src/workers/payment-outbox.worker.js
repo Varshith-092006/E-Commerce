@@ -159,32 +159,26 @@ export class PaymentOutboxWorker {
     const orderId = data.orderId || data.order_id || event.aggregate_id;
 
     if (this.useKafka) {
-      try {
-        const envelope = KafkaEventEnvelope.create({
-          eventId,
-          eventType,
-          sourceService: 'payment-svc',
-          aggregateType: 'payment',
-          aggregateId: String(orderId || ''),
-          traceId: rawPayload.traceId,
-          requestId: rawPayload.requestId,
-          correlationId: rawPayload.correlationId,
-          payload: data,
-        });
+      const envelope = KafkaEventEnvelope.create({
+        eventId,
+        eventType,
+        eventVersion: 1,
+        sourceService: 'payment-svc',
+        aggregateType: 'payment',
+        aggregateId: String(orderId || ''),
+        traceId: rawPayload.traceId,
+        requestId: rawPayload.requestId,
+        correlationId: rawPayload.correlationId,
+        payload: data,
+      });
 
-        await this.kafkaProducer.publish({
-          topic: KafkaTopics.PAYMENT_EVENTS,
-          key: String(orderId || eventId),
-          eventEnvelope: envelope,
-        });
+      await this.kafkaProducer.publish({
+        topic: KafkaTopics.PAYMENT_EVENTS,
+        key: String(orderId || eventId),
+        eventEnvelope: envelope,
+      });
 
-        return { processed: true, eventId, eventType, transport: 'kafka' };
-      } catch (kafkaErr) {
-        this.logger.warn(
-          { err: kafkaErr.message, eventId, eventType },
-          'Kafka publish failed in PaymentOutboxWorker; attempting REST fallback',
-        );
-      }
+      return { processed: true, eventId, eventType, transport: 'kafka' };
     }
 
     // REST HTTP fallback for environments without Kafka broker running

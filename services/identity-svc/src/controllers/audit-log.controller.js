@@ -20,8 +20,9 @@ export class AuditLogController {
   getAuditLogs = async (req, res, next) => {
     try {
       const {
-        page = 1,
+        page = null,
         limit = 20,
+        cursor = null,
         service = null,
         eventType = null,
         actorId = null,
@@ -35,6 +36,7 @@ export class AuditLogController {
       const result = await this.auditRepo.findMany({
         page,
         limit,
+        cursor,
         service,
         eventType,
         actorId,

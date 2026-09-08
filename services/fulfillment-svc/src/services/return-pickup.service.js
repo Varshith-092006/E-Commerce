@@ -660,7 +660,7 @@ export class ReturnPickupService {
 
     return {
       returns: items,
-      ...buildPaginationMeta({ page: pageNum, limit: limitNum, total }),
+      pagination: buildPaginationMeta({ page: pageNum, limit: limitNum, total }),
     };
   }
 }

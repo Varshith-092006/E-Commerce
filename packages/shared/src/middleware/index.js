@@ -4,3 +4,6 @@ export * from './auth.js';
 export * from './rbac.js';
 export * from './rate-limiter.js';
 export * from './metrics.js';
+export * from './load-shedding.js';
+export * from './compression.js';
+export * from './request-limits.js';

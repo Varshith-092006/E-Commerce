@@ -1,31 +1,22 @@
 import dotenv from 'dotenv';
+import { getRequiredSecret } from '@ecommerce/shared';
 
 dotenv.config();
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
-const isProduction = NODE_ENV === 'production';
 
 // Internal gateway secret — used for service mesh authentication.
-// NEVER expose this value in logs or responses.
+// In production, fails immediately if missing, empty, or set to a known dev default.
 const DEV_ONLY_INTERNAL_SECRET = 'ecom_internal_mesh_secret_2026';
-const rawInternalSecret = process.env.INTERNAL_GATEWAY_SECRET;
+const internalGatewaySecret = getRequiredSecret(
+  'INTERNAL_GATEWAY_SECRET',
+  DEV_ONLY_INTERNAL_SECRET,
+);
 
-if (isProduction && !rawInternalSecret) {
-  // Fail hard at startup in production — misconfigured secret is a security risk
-  throw new Error(
-    '[FATAL] INTERNAL_GATEWAY_SECRET environment variable is required in production. ' +
-      'Set this to a strong, unique secret shared across all microservices.',
-  );
-}
-
-if (!isProduction && !rawInternalSecret) {
-  console.warn(
-    '[WARNING] INTERNAL_GATEWAY_SECRET not set. Using dev-only default. ' +
-      'DO NOT use this default in production.',
-  );
-}
-
-const internalGatewaySecret = rawInternalSecret || DEV_ONLY_INTERNAL_SECRET;
+// JWT secret — used to verify user access tokens at edge/ingress.
+// In production, fails immediately if missing, empty, or set to a known dev default.
+const DEV_ONLY_JWT_SECRET = 'ecom_default_jwt_secret_dev_only_change_in_prod';
+const jwtSecret = getRequiredSecret('JWT_SECRET', DEV_ONLY_JWT_SECRET);
 
 export const config = Object.freeze({
   env: NODE_ENV,
@@ -37,6 +28,7 @@ export const config = Object.freeze({
   // IMPORTANT: internalGatewaySecret is for SERVICE MESH USE ONLY.
   // Never log or expose this value to external clients.
   internalGatewaySecret,
+  jwtSecret,
   services: {
     identity: process.env.IDENTITY_SVC_URL || 'http://localhost:4001',
     catalog: process.env.CATALOG_SVC_URL || 'http://localhost:4002',
@@ -48,5 +40,9 @@ export const config = Object.freeze({
   rateLimit: {
     windowSeconds: parseInt(process.env.RATE_LIMIT_WINDOW_SECONDS || '60', 10),
     maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '120', 10),
+  },
+  cache: {
+    enabled: process.env.CACHE_ENABLED !== 'false',
+    adminDashboardTtl: parseInt(process.env.CACHE_TTL_ADMIN_DASHBOARD_SECONDS || '60', 10),
   },
 });

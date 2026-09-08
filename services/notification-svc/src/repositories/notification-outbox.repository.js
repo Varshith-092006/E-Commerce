@@ -1,3 +1,5 @@
+import { calculateRetryDelayWithJitter } from '@ecommerce/shared';
+
 import { prisma as defaultPrisma } from '../lib/prisma.js';
 
 /**
@@ -113,8 +115,12 @@ export class NotificationOutboxRepository {
     const newRetryCount = record.retry_count + 1;
     const isDlq = newRetryCount >= record.max_retries;
 
-    // Exponential backoff: 1m, 5m, 25m, ...
-    const backoffMs = Math.min(60_000 * Math.pow(5, record.retry_count), 60 * 60 * 1000); // max 1h
+    // Exponential backoff with jitter: 1m, 2m, 4m, ... capped at 1h
+    const backoffMs = calculateRetryDelayWithJitter({
+      attempt: newRetryCount,
+      baseDelayMs: 60_000,
+      maxDelayMs: 60 * 60 * 1000,
+    });
     const nextRetryAt = new Date(Date.now() + backoffMs);
 
     return await this.prisma.notificationOutbox.update({

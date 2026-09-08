@@ -1,15 +1,57 @@
+import { getRedisClient, CacheService, CacheKeys } from '@ecommerce/shared';
+
 import { prisma as defaultPrisma } from '../lib/prisma.js';
+import { config } from '../config/index.js';
 
 export class CouponRepository {
-  constructor(prismaClient = defaultPrisma) {
+  constructor(prismaClient = defaultPrisma, cacheService = null) {
     this.prisma = prismaClient;
+    if (cacheService) {
+      this.cache = cacheService;
+    } else {
+      try {
+        const redis = config.redisUrl ? getRedisClient(config.redisUrl) : null;
+        this.cache = new CacheService({
+          redisClient: redis,
+          enabled: config.cache?.enabled !== false,
+          defaultNamespace: 'coupon',
+          defaultTtl: 300,
+        });
+      } catch {
+        this.cache = new CacheService({ redisClient: null, enabled: false });
+      }
+    }
   }
 
   async findByCode(code, tx = this.prisma) {
-    const coupon = await tx.coupon.findUnique({
-      where: { code: code.toUpperCase().trim() },
-    });
-    return coupon;
+    if (!code) {
+      return null;
+    }
+    const cleanCode = code.toUpperCase().trim();
+    const cacheKey = CacheKeys.coupon.code(cleanCode);
+
+    // If inside a transaction, bypass cache and read authoritative DB
+    if (tx !== this.prisma) {
+      return await tx.coupon.findUnique({
+        where: { code: cleanCode },
+      });
+    }
+
+    return await this.cache.getOrSet(
+      cacheKey,
+      async () => {
+        return await tx.coupon.findUnique({
+          where: { code: cleanCode },
+        });
+      },
+      300,
+    );
+  }
+
+  async invalidateCouponCache(code) {
+    if (code) {
+      await this.cache.delete(CacheKeys.coupon.code(code));
+    }
   }
 
   async getUserRedemptionCount(couponId, userId, tx = this.prisma) {
@@ -71,8 +113,8 @@ export class CouponRepository {
       return null;
     }
 
-    // 4. Atomically increment usage
-    await tx.coupon.update({
+    // 4. Atomically increment usage in PostgreSQL
+    const updatedCoupon = await tx.coupon.update({
       where: { id: couponId },
       data: {
         current_usage: { increment: 1 },
@@ -88,6 +130,9 @@ export class CouponRepository {
         discount_amount: discountAmount,
       },
     });
+
+    // Invalidate coupon metadata cache after usage update
+    await this.invalidateCouponCache(updatedCoupon.code);
 
     return { redemption, alreadyRedeemed: false };
   }

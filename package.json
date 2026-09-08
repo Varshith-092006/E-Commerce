@@ -20,7 +20,19 @@
     "prisma:generate": "npm run prisma:generate --workspaces --if-present",
     "docker:up": "docker compose -f infra/docker-compose.yml up -d",
     "docker:down": "docker compose -f infra/docker-compose.yml down",
-    "docker:reset": "docker compose -f infra/docker-compose.yml down -v && docker compose -f infra/docker-compose.yml up -d"
+    "docker:reset": "docker compose -f infra/docker-compose.yml down -v && docker compose -f infra/docker-compose.yml up -d",
+    "chaos:test": "node scripts/chaos-test.mjs",
+    "chaos:suite": "node scripts/chaos-suite.mjs",
+    "backup:databases": "node scripts/backup-databases.mjs",
+    "verify:backups": "node scripts/verify-backups.mjs",
+    "restore:database": "node scripts/restore-database.mjs",
+    "recovery:suite": "node scripts/run-phase8-suite.mjs",
+    "edge:test": "node scripts/test-edge-security.mjs",
+    "dr:verify-backups": "node scripts/dr/verify-backups.mjs",
+    "dr:validate-kafka": "node scripts/dr/validate-kafka-recovery.mjs",
+    "dr:validate-services": "node scripts/dr/validate-service-recovery.mjs",
+    "dr:verify-recovery": "node scripts/dr/verify-recovery.mjs",
+    "dr:reconstruct": "node scripts/dr/dr-reconstruction.mjs"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",

@@ -625,7 +625,7 @@ export class ShipmentService {
 
     return {
       shipments: items,
-      ...buildPaginationMeta({ page: pageNum, limit: limitNum, total }),
+      pagination: buildPaginationMeta({ page: pageNum, limit: limitNum, total }),
     };
   }
 }

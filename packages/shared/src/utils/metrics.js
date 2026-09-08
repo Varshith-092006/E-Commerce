@@ -201,6 +201,57 @@ export class MetricsRegistry {
     });
 
     this.registerCounter({
+      name: 'http_request_errors_total',
+      help: 'Total number of HTTP request errors encountered',
+      labelNames: ['service', 'method', 'route', 'error_type'],
+    });
+
+    // Load Shedding Metrics
+    this.registerCounter({
+      name: 'load_shedding_requests_total',
+      help: 'Total number of requests evaluated by load shedding',
+      labelNames: ['service', 'priority'],
+    });
+
+    this.registerGauge({
+      name: 'load_shedding_active_requests',
+      help: 'Current active in-flight requests tracked by load shedding',
+      labelNames: ['service'],
+    });
+
+    this.registerCounter({
+      name: 'load_shedding_rejected_total',
+      help: 'Total number of requests rejected/shed due to overload',
+      labelNames: ['service', 'priority'],
+    });
+
+    // Database Connection Pool Metrics
+    this.registerGauge({
+      name: 'db_pool_connections_active',
+      help: 'Number of active database connections in use',
+      labelNames: ['service'],
+    });
+
+    this.registerGauge({
+      name: 'db_pool_connections_idle',
+      help: 'Number of idle database connections in the pool',
+      labelNames: ['service'],
+    });
+
+    this.registerGauge({
+      name: 'db_pool_connections_total',
+      help: 'Total database connections configured in the pool',
+      labelNames: ['service'],
+    });
+
+    // Redis Connection Metrics
+    this.registerGauge({
+      name: 'redis_connected_clients',
+      help: 'Number of connected clients to Redis instance',
+      labelNames: ['service'],
+    });
+
+    this.registerCounter({
       name: 'outbox_events_total',
       help: 'Total number of transactional outbox events processed',
       labelNames: ['service', 'event_type', 'status'],
@@ -233,20 +284,44 @@ export class MetricsRegistry {
     });
 
     this.registerCounter({
+      name: 'kafka_consumer_records_processed_total',
+      help: 'Total number of records successfully processed by Kafka consumer groups',
+      labelNames: ['service', 'topic', 'consumer_group'],
+    });
+
+    this.registerCounter({
       name: 'kafka_consumer_errors_total',
       help: 'Total number of errors encountered during Kafka message consumption',
       labelNames: ['service', 'topic', 'consumer_group', 'error_type'],
     });
 
+    this.registerCounter({
+      name: 'kafka_consumer_retries_total',
+      help: 'Total number of retry attempts executed by Kafka consumers',
+      labelNames: ['service', 'topic', 'consumer_group'],
+    });
+
     this.registerGauge({
       name: 'kafka_consumer_lag',
-      help: 'Estimated Kafka consumer lag per partition/group',
+      help: 'Estimated total Kafka consumer lag per topic and group',
       labelNames: ['service', 'topic', 'consumer_group'],
+    });
+
+    this.registerGauge({
+      name: 'kafka_consumer_partition_lag',
+      help: 'Estimated Kafka consumer lag per individual topic, partition, and consumer group',
+      labelNames: ['service', 'topic', 'partition', 'consumer_group'],
     });
 
     this.registerCounter({
       name: 'kafka_dlq_messages_total',
       help: 'Total number of messages routed to Kafka Dead Letter Queue',
+      labelNames: ['service', 'topic', 'consumer_group'],
+    });
+
+    this.registerCounter({
+      name: 'kafka_consumer_dlq_total',
+      help: 'Total number of messages routed to Kafka Dead Letter Queue (Phase 4 standardized)',
       labelNames: ['service', 'topic', 'consumer_group'],
     });
 

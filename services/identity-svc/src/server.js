@@ -1,10 +1,21 @@
-import { createLogger } from '@ecommerce/shared';
+import { createLogger, GracefulShutdownHandler } from '@ecommerce/shared';
 
 import { createApp } from './app.js';
 import { config } from './config/index.js';
+import { prisma } from './lib/prisma.js';
 
 const logger = createLogger({ service: config.serviceName });
-const app = createApp();
+
+const shutdownHandler = new GracefulShutdownHandler({
+  serviceName: config.serviceName,
+  shutdownTimeoutMs: parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 10000,
+  logger,
+  prisma,
+});
+
+const app = createApp({
+  getIsShuttingDown: () => shutdownHandler.getIsShuttingDown(),
+});
 
 const server = app.listen(config.port, () => {
   logger.info(
@@ -13,14 +24,4 @@ const server = app.listen(config.port, () => {
   );
 });
 
-function gracefulShutdown(signal) {
-  logger.info({ signal }, `Received ${signal}, shutting down ${config.serviceName}...`);
-  server.close(() => {
-    logger.info('HTTP server closed');
-    // eslint-disable-next-line no-process-exit
-    process.exit(0);
-  });
-}
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+shutdownHandler.setServer(server).registerSignalHandlers();

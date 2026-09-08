@@ -8,6 +8,10 @@ import {
   PlatformPolicies,
   metricsMiddleware,
   metricsEndpoint,
+  defaultHttpAgent,
+  createLoadSheddingMiddleware,
+  createCompressionMiddleware,
+  createUriLengthCheck,
 } from '@ecommerce/shared';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -23,13 +27,30 @@ import { getRedisClient as defaultGetRedisClient } from './lib/redis.js';
 
 const logger = createLogger({ service: 'gateway' });
 
-export function createApp({ checkRedisHealth, getRedisClient = defaultGetRedisClient } = {}) {
+export function createApp({
+  checkRedisHealth,
+  getRedisClient = defaultGetRedisClient,
+  getIsShuttingDown = () => false,
+} = {}) {
   const app = express();
 
   // Trust proxy for X-Forwarded-* headers from Nginx
   app.set('trust proxy', 1);
 
-  // Security Headers
+  // Phase 3: Traffic Management & Edge Protection
+  // 1. Request ID & Distributed Tracing Correlation (must be first for all downstream telemetry)
+  app.use(requestIdMiddleware);
+
+  // 2. Request limits: URI Length constraint (RFC 7230 / HTTP 414 URI Too Long)
+  app.use(createUriLengthCheck(2048));
+
+  // 3. Load Shedding (in-flight request overload protection with priority tiers)
+  app.use(createLoadSheddingMiddleware());
+
+  // 4. Response Compression (Brotli / Gzip / Deflate with SSE bypass)
+  app.use(createCompressionMiddleware());
+
+  // 5. Security Headers & Cookies
   app.use(helmet());
   app.use(cookieParser());
 
@@ -90,9 +111,6 @@ export function createApp({ checkRedisHealth, getRedisClient = defaultGetRedisCl
     next();
   });
 
-  // Request ID & Distributed Tracing Correlation
-  app.use(requestIdMiddleware);
-
   // Prometheus Metrics Collection Middleware
   app.use(metricsMiddleware({ serviceName: 'gateway' }));
 
@@ -100,7 +118,7 @@ export function createApp({ checkRedisHealth, getRedisClient = defaultGetRedisCl
   app.get('/metrics', metricsEndpoint);
 
   // Health route (excluded from rate limiting)
-  app.use(createHealthRouter({ checkHealth: checkRedisHealth }));
+  app.use(createHealthRouter({ checkHealth: checkRedisHealth, getIsShuttingDown }));
 
   // Route-Specific Rate Limiters (Redis-backed, locked platform policies)
   const loginLimiter = createIpRateLimiter({
@@ -162,6 +180,9 @@ export function createApp({ checkRedisHealth, getRedisClient = defaultGetRedisCl
     return createProxyMiddleware({
       target,
       changeOrigin: true,
+      agent: defaultHttpAgent,
+      proxyTimeout: 15000,
+      timeout: 15000,
       pathFilter,
       on: {
         proxyReq: (proxyReq, req) => {

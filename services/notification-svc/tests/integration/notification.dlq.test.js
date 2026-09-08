@@ -20,7 +20,9 @@ describe('Notification Service DLQ & Granular Preferences Integration Tests', ()
   let notificationService;
   let notificationController;
 
-  const internalSecret = 'ecommerce_dev_internal_secret_2026_super_secure_gateway_passcode';
+  const internalSecret =
+    process.env.INTERNAL_GATEWAY_SECRET ||
+    'ecommerce_dev_internal_secret_2026_super_secure_gateway_passcode';
   const adminToken = generateAccessToken({
     userId: 'admin-uuid-1',
     role: 'ADMIN',

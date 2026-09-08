@@ -1,5 +1,6 @@
 import { logger as defaultLogger } from '../utils/logger.js';
 import { metricsRegistry } from '../utils/metrics.js';
+import { calculateRetryDelayWithJitter, mapConcurrent } from '../utils/concurrency.js';
 
 export class OutboxProcessor {
   constructor({
@@ -12,6 +13,7 @@ export class OutboxProcessor {
     maxAttempts = 5,
     baseRetryMs = 1000,
     maxRetryMs = 60000,
+    concurrency = null,
     logger = defaultLogger,
   } = {}) {
     if (!repository) {
@@ -30,6 +32,10 @@ export class OutboxProcessor {
     this.maxAttempts = maxAttempts;
     this.baseRetryMs = baseRetryMs;
     this.maxRetryMs = maxRetryMs;
+    this.concurrency =
+      concurrency !== null && concurrency !== undefined
+        ? Math.max(1, parseInt(concurrency, 10) || 5)
+        : Math.max(1, parseInt(process.env.MAX_DB_WORKER_CONCURRENCY, 10) || 5);
     this.logger = logger;
 
     this.isRunning = false;
@@ -81,17 +87,22 @@ export class OutboxProcessor {
   }
 
   /**
-   * Calculates exponential backoff delay with bounded full jitter
+   * Calculates exponential backoff delay with bounded random jitter
    */
   static calculateBackoff({
     retryCount = 0,
     baseDelayMs = 1000,
     maxDelayMs = 60000,
-    jitterMaxMs = 1000,
+    jitterMaxMs = undefined,
+    jitterPercent = null,
   } = {}) {
-    const exponential = Math.min(baseDelayMs * Math.pow(2, retryCount), maxDelayMs);
-    const jitter = Math.floor(Math.random() * Math.min(jitterMaxMs, exponential));
-    return exponential + jitter;
+    return calculateRetryDelayWithJitter({
+      attempt: retryCount + 1,
+      baseDelayMs,
+      maxDelayMs,
+      jitterPercent,
+      jitterMaxMs,
+    });
   }
 
   /**
@@ -179,8 +190,8 @@ export class OutboxProcessor {
         'Claimed outbox event batch',
       );
 
-      // 3. Process events concurrently within batch
-      await Promise.all(events.map((event) => this.handleSingleEvent(event)));
+      // 3. Process events with bounded concurrency within batch
+      await mapConcurrent(events, (event) => this.handleSingleEvent(event), this.concurrency);
     } catch (err) {
       this.logger.error(
         { workerId: this.workerId, err: err.message },

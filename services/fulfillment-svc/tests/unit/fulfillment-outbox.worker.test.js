@@ -14,8 +14,15 @@ describe('FulfillmentOutboxWorker Unit Tests', () => {
       markDeadLetter: jest.fn(),
     };
 
+    const mockKafkaProducer = {
+      connect: jest.fn().mockResolvedValue(),
+      publish: jest.fn().mockResolvedValue({ partition: 0, offset: '1' }),
+      disconnect: jest.fn().mockResolvedValue(),
+    };
+
     worker = new FulfillmentOutboxWorker({
       repository: mockRepo,
+      kafkaProducer: mockKafkaProducer,
       workerId: 'test_fulfillment_worker',
     });
   });

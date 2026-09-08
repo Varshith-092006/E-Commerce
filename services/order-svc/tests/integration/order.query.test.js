@@ -117,11 +117,13 @@ describe('Order Query, Authorization, Search & Invoicing Integration Tests', () 
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveLength(1);
       expect(res.body.data[0].orderNumber).toBe('ORD-20260824-A1B2C3');
-      expect(res.body.pagination).toEqual({
+      expect(res.body.pagination).toMatchObject({
         page: 1,
         limit: 10,
         total: 1,
         totalPages: 1,
+        hasNextPage: false,
+        hasPreviousPage: false,
       });
 
       expect(mockOrderRepo.findOrders).toHaveBeenCalledWith({
@@ -134,7 +136,7 @@ describe('Order Query, Authorization, Search & Invoicing Integration Tests', () 
       });
     });
 
-    it('should clamp limit to max 50 and sanitize invalid page numbers', async () => {
+    it('should clamp limit to standardized max 100 and sanitize invalid page numbers', async () => {
       mockOrderRepo.findOrders.mockResolvedValue([]);
       mockOrderRepo.countOrders.mockResolvedValue(0);
 
@@ -147,7 +149,7 @@ describe('Order Query, Authorization, Search & Invoicing Integration Tests', () 
       expect(mockOrderRepo.findOrders).toHaveBeenCalledWith(
         expect.objectContaining({
           skip: 0,
-          take: 50,
+          take: 100,
         }),
       );
     });

@@ -165,7 +165,7 @@ export class WarehouseService {
 
     return {
       warehouses: items,
-      ...buildPaginationMeta({ page: pageNum, limit: limitNum, total }),
+      pagination: buildPaginationMeta({ page: pageNum, limit: limitNum, total }),
     };
   }
 }

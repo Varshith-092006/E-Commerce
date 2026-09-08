@@ -1,4 +1,13 @@
-import { ValidationError, ForbiddenError, NotFoundError, logger } from '@ecommerce/shared';
+import {
+  ValidationError,
+  ForbiddenError,
+  NotFoundError,
+  logger,
+  parseCursorPagination,
+  buildCursorPaginationMeta,
+  parsePagination,
+  buildPaginationMeta,
+} from '@ecommerce/shared';
 
 import { NotificationRepository } from '../repositories/notification.repository.js';
 
@@ -411,15 +420,20 @@ export class NotificationService {
   }
 
   /**
-   * Retrieves paginated notifications and unread count for user
+   * Retrieves paginated notifications and unread count for user.
+   * Supports both cursor pagination (keyset logic) and standard offset pagination.
    */
-  async getUserNotifications({ userId, channel = 'IN_APP', isRead = null, page = 1, limit = 20 }) {
+  async getUserNotifications({
+    userId,
+    channel = 'IN_APP',
+    isRead = null,
+    page = null,
+    limit = 20,
+    cursor = null,
+  }) {
     if (!userId) {
       throw new ValidationError('Authentication required');
     }
-
-    const safePage = Math.max(1, parseInt(page, 10) || 1);
-    const safeLimit = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
 
     let parsedIsRead = null;
     if (isRead === 'true' || isRead === true) {
@@ -428,6 +442,65 @@ export class NotificationService {
     if (isRead === 'false' || isRead === false) {
       parsedIsRead = false;
     }
+
+    // Keyset cursor pagination path (when cursor is provided or page is omitted)
+    const shouldUseCursor =
+      (cursor !== undefined && cursor !== null) ||
+      page === undefined ||
+      page === null ||
+      page === '';
+
+    if (shouldUseCursor) {
+      const { cursor: decodedCursor, limit: safeLimit } = parseCursorPagination(
+        { cursor, limit },
+        { defaultLimit: 20, maxLimit: 100 },
+      );
+
+      const [repoResult, unreadCount] = await Promise.all([
+        this.notificationRepo.findUserNotifications({
+          userId,
+          channel,
+          isRead: parsedIsRead,
+          limit: safeLimit,
+          cursor: decodedCursor,
+        }),
+        this.notificationRepo.countUnreadUserNotifications(userId, channel),
+      ]);
+
+      const cursorMeta = buildCursorPaginationMeta({
+        items: repoResult.items,
+        limit: safeLimit,
+        getCursorFn: (item) => ({
+          id: item.id,
+          createdAt: item.created_at ? new Date(item.created_at).toISOString() : null,
+        }),
+      });
+
+      const formattedItems = cursorMeta.items.map((item) => ({
+        id: item.id,
+        channel: item.channel,
+        category: item.category,
+        subject: item.subject,
+        content: item.content,
+        metadata: item.metadata,
+        status: item.status,
+        isRead: item.is_read,
+        readAt: item.read_at,
+        createdAt: item.created_at,
+      }));
+
+      return {
+        items: formattedItems,
+        unreadCount,
+        pagination: cursorMeta.pagination,
+      };
+    }
+
+    // Standard offset pagination fallback
+    const { page: safePage, limit: safeLimit } = parsePagination(
+      { page, limit },
+      { defaultLimit: 20, maxLimit: 100 },
+    );
 
     const [{ items, total }, unreadCount] = await Promise.all([
       this.notificationRepo.findUserNotifications({
@@ -453,15 +526,12 @@ export class NotificationService {
       createdAt: item.created_at,
     }));
 
+    const offsetMeta = buildPaginationMeta({ page: safePage, limit: safeLimit, total });
+
     return {
       items: formattedItems,
       unreadCount,
-      pagination: {
-        page: safePage,
-        limit: safeLimit,
-        total,
-        totalPages: Math.ceil(total / safeLimit) || 1,
-      },
+      pagination: offsetMeta,
     };
   }
 

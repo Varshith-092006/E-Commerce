@@ -1,6 +1,10 @@
 import dotenv from 'dotenv';
+import { getRequiredSecret } from '@ecommerce/shared';
 
 dotenv.config();
+
+const DEV_ONLY_INTERNAL_SECRET = 'ecom_internal_mesh_secret_2026';
+const internalSecret = getRequiredSecret('INTERNAL_GATEWAY_SECRET', DEV_ONLY_INTERNAL_SECRET);
 
 export const config = Object.freeze({
   serviceName: 'payment-svc',
@@ -9,7 +13,7 @@ export const config = Object.freeze({
   databaseUrl:
     process.env.DATABASE_URL ||
     'postgresql://postgres:postgres@localhost:5432/payment_db?schema=public',
-  internalSecret: process.env.INTERNAL_GATEWAY_SECRET || 'ecom_internal_mesh_secret_2026',
+  internalSecret,
   razorpayKeyId: process.env.RAZORPAY_KEY_ID || 'rzp_test_ApexStoreMockKey2026',
   razorpayKeySecret: process.env.RAZORPAY_KEY_SECRET || 'mock_razorpay_secret_key_apex_2026',
   razorpayWebhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || 'mock_razorpay_webhook_secret_2026',

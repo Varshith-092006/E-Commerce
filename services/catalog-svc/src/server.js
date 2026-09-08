@@ -1,13 +1,25 @@
-import { createLogger } from '@ecommerce/shared';
+import { createLogger, GracefulShutdownHandler } from '@ecommerce/shared';
 import { initializeKafkaTopics } from '@ecommerce/shared/kafka';
 
 import { createApp } from './app.js';
 import { config } from './config/index.js';
+import { prisma } from './lib/prisma.js';
 import { CatalogOutboxWorker } from './workers/catalog-outbox.worker.js';
 import { reviewConsumer } from './workers/review-consumer.js';
 
 const logger = createLogger({ service: config.serviceName });
-const app = createApp();
+
+const shutdownHandler = new GracefulShutdownHandler({
+  serviceName: config.serviceName,
+  shutdownTimeoutMs: parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 10000,
+  logger,
+  prisma,
+  consumers: [reviewConsumer],
+});
+
+const app = createApp({
+  getIsShuttingDown: () => shutdownHandler.getIsShuttingDown(),
+});
 
 let outboxWorker = null;
 
@@ -28,6 +40,7 @@ const server = app.listen(config.port, async () => {
   if (process.env.START_OUTBOX_WORKERS !== 'false') {
     outboxWorker = new CatalogOutboxWorker();
     outboxWorker.start();
+    shutdownHandler.addWorker(outboxWorker);
     logger.info('CatalogOutboxWorker started with HTTP server');
   }
 
@@ -39,27 +52,4 @@ const server = app.listen(config.port, async () => {
   }
 });
 
-async function gracefulShutdown(signal) {
-  logger.info({ signal }, `Received ${signal}, shutting down ${config.serviceName}...`);
-  if (outboxWorker) {
-    try {
-      await outboxWorker.stop(5000);
-    } catch (err) {
-      logger.warn({ err: err.message }, 'Error stopping CatalogOutboxWorker');
-    }
-  }
-  try {
-    await reviewConsumer.stop();
-  } catch (err) {
-    logger.warn({ err: err.message }, 'Error stopping ReviewConsumer');
-  }
-
-  server.close(() => {
-    logger.info('HTTP server closed');
-    // eslint-disable-next-line no-process-exit
-    process.exit(0);
-  });
-}
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+shutdownHandler.setServer(server).registerSignalHandlers();

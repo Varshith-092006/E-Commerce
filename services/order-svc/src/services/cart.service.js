@@ -6,6 +6,8 @@ import {
   createLogger,
   getRedisClient,
   SecurityHeaders,
+  CacheService,
+  CacheKeys,
 } from '@ecommerce/shared';
 
 import { cartRepository as defaultCartRepo } from '../repositories/cart.repository.js';
@@ -27,67 +29,48 @@ export class CartService {
     this.getRedis = getRedis;
     this.catalogBaseUrl = catalogBaseUrl;
     this.internalSecret = internalSecret;
+    try {
+      const redis = typeof getRedis === 'function' ? getRedis() : null;
+      this.cache = new CacheService({
+        redisClient: redis,
+        enabled: config.cache?.enabled !== false,
+        defaultNamespace: 'cart',
+        defaultTtl: CART_REDIS_TTL_SECONDS,
+      });
+    } catch {
+      this.cache = new CacheService({ redisClient: null, enabled: false });
+    }
   }
 
   /**
    * Safe Redis cache getter (returns null if Redis throws or is disconnected)
    */
   async _getCartFromCache(userId) {
-    try {
-      const redis = this.getRedis();
-      if (!redis || redis.status !== 'ready') {
-        return null;
-      }
-      const cached = await redis.get(`cart:${userId}`);
-      return cached ? JSON.parse(cached) : null;
-    } catch (err) {
-      logger.warn(
-        { err: err.message, userId },
-        'Redis read error in cart cache (fallback to PostgreSQL)',
-      );
-      return null;
-    }
+    return await this.cache.get(CacheKeys.cart.user(userId));
   }
 
   /**
    * Safe Redis cache setter (never fails the main request)
    */
   async _setCartInCache(userId, cartData) {
-    try {
-      const redis = this.getRedis();
-      if (!redis || redis.status !== 'ready') {
-        return;
-      }
-      // Store unpriced structural data in Redis
-      const cachePayload = {
-        cartId: cartData.id,
-        userId: cartData.user_id,
-        items: (cartData.items || []).map((item) => ({
-          id: item.id,
-          productId: item.product_id,
-          sellerId: item.seller_id,
-          quantity: item.quantity,
-        })),
-      };
-      await redis.setex(`cart:${userId}`, CART_REDIS_TTL_SECONDS, JSON.stringify(cachePayload));
-    } catch (err) {
-      logger.warn({ err: err.message, userId }, 'Redis write error in cart cache');
-    }
+    const cachePayload = {
+      cartId: cartData.id,
+      userId: cartData.user_id,
+      items: (cartData.items || []).map((item) => ({
+        id: item.id,
+        productId: item.product_id,
+        sellerId: item.seller_id,
+        quantity: item.quantity,
+      })),
+    };
+    await this.cache.set(CacheKeys.cart.user(userId), cachePayload, CART_REDIS_TTL_SECONDS);
   }
 
   /**
    * Safe Redis cache invalidator (never fails the main request)
    */
   async _invalidateCartCache(userId) {
-    try {
-      const redis = this.getRedis();
-      if (!redis || redis.status !== 'ready') {
-        return;
-      }
-      await redis.del(`cart:${userId}`);
-    } catch (err) {
-      logger.warn({ err: err.message, userId }, 'Redis cache invalidation warning');
-    }
+    await this.cache.delete(CacheKeys.cart.user(userId));
   }
 
   /**

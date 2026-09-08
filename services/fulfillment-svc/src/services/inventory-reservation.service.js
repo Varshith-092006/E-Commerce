@@ -831,7 +831,7 @@ export class InventoryReservationService {
 
     return {
       inventory: enrichedItems,
-      ...buildPaginationMeta({ page: pageNum, limit: limitNum, total }),
+      pagination: buildPaginationMeta({ page: pageNum, limit: limitNum, total }),
     };
   }
 }

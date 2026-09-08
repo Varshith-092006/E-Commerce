@@ -1,0 +1,88 @@
+{
+  "scalingData": [
+    {
+      "service": "catalog-svc",
+      "replicas": 1,
+      "RPS": 103.7,
+      "P95": 1058.07,
+      "P99": 3477.98,
+      "CPU": 1,
+      "memory": 599.2,
+      "dbConnections": 0,
+      "redisClients": 0,
+      "kafkaLag": 0,
+      "errors": 0,
+      "scalingEfficiency": 1
+    },
+    {
+      "service": "catalog-svc",
+      "replicas": 2,
+      "RPS": 178.4,
+      "P95": 597.36,
+      "P99": 2103.57,
+      "CPU": 1.2,
+      "memory": 607.1,
+      "dbConnections": 0,
+      "redisClients": 0,
+      "kafkaLag": 0,
+      "errors": 0,
+      "scalingEfficiency": 0.8602
+    },
+    {
+      "service": "catalog-svc",
+      "replicas": 3,
+      "RPS": 111.5,
+      "P95": 1093.06,
+      "P99": 3529.51,
+      "CPU": 1.1,
+      "memory": 621.7,
+      "dbConnections": 0,
+      "redisClients": 0,
+      "kafkaLag": 0,
+      "errors": 0,
+      "scalingEfficiency": 0.3584
+    },
+    {
+      "service": "order-svc",
+      "replicas": 1,
+      "RPS": 53.2,
+      "P95": 1740.9,
+      "P99": 2234.24,
+      "CPU": 2.9,
+      "memory": 615.8,
+      "dbConnections": 0,
+      "redisClients": 0,
+      "kafkaLag": 0,
+      "errors": 0,
+      "scalingEfficiency": 1
+    },
+    {
+      "service": "order-svc",
+      "replicas": 2,
+      "RPS": 51.4,
+      "P95": 1484.51,
+      "P99": 2307.93,
+      "CPU": 0.6,
+      "memory": 611.8,
+      "dbConnections": 0,
+      "redisClients": 0,
+      "kafkaLag": 0,
+      "errors": 0,
+      "scalingEfficiency": 0.4831
+    },
+    {
+      "service": "order-svc",
+      "replicas": 3,
+      "RPS": 90,
+      "P95": 1029.84,
+      "P99": 1487.03,
+      "CPU": 0.8,
+      "memory": 608.4,
+      "dbConnections": 0,
+      "redisClients": 0,
+      "kafkaLag": 0,
+      "errors": 0,
+      "scalingEfficiency": 0.5639
+    }
+  ]
+}

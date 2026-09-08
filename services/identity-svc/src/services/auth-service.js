@@ -13,12 +13,14 @@ import {
   Roles,
   SellerStatus,
   createLogger,
+  getRedisClient,
 } from '@ecommerce/shared';
 
 import { UserRepository } from '../repositories/user-repository.js';
 import { SellerRepository } from '../repositories/seller-repository.js';
 import { TokenRepository } from '../repositories/token-repository.js';
 import { prisma } from '../lib/prisma.js';
+import { config } from '../config/index.js';
 
 const logger = createLogger({ service: 'identity-svc:auth' });
 
@@ -28,11 +30,17 @@ export class AuthService {
     sellerRepo = new SellerRepository(),
     tokenRepo = new TokenRepository(),
     db = prisma,
+    redis = null,
   } = {}) {
     this.userRepo = userRepo;
     this.sellerRepo = sellerRepo;
     this.tokenRepo = tokenRepo;
     this.db = db;
+    try {
+      this.redis = redis || (config.redisUrl ? getRedisClient(config.redisUrl) : null);
+    } catch {
+      this.redis = null;
+    }
   }
 
   /**
@@ -271,6 +279,7 @@ export class AuthService {
     }
 
     const isValidPassword = await comparePassword(password, user.password_hash);
+
     if (!isValidPassword) {
       if (user.role === Roles.ADMIN) {
         logger.warn(
@@ -294,7 +303,7 @@ export class AuthService {
 
     let sellerInfo = null;
     if (user.role === Roles.SELLER) {
-      const seller = await this.sellerRepo.findByUserId(user.id);
+      const seller = user.seller || (await this.sellerRepo.findByUserId(user.id));
       if (seller) {
         sellerInfo = {
           id: seller.id,

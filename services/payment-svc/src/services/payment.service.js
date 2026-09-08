@@ -4,6 +4,7 @@ import {
   ForbiddenError,
   BusinessRuleError,
   createLogger,
+  paymentBulkhead,
 } from '@ecommerce/shared';
 
 import { paymentRepository as defaultPaymentRepo } from '../repositories/payment.repository.js';
@@ -19,11 +20,13 @@ export class PaymentService {
     refundRepo = defaultRefundRepo,
     razorpay = defaultRazorpayProvider,
     keyId = config.razorpayKeyId,
+    bulkhead = paymentBulkhead,
   } = {}) {
     this.paymentRepo = paymentRepo;
     this.refundRepo = refundRepo;
     this.razorpay = razorpay;
     this.keyId = keyId;
+    this.bulkhead = bulkhead;
   }
 
   /**
@@ -48,11 +51,13 @@ export class PaymentService {
     const amountInPaise = Math.round(numAmount * 100);
     const amountStr = (amountInPaise / 100).toFixed(2);
 
-    // 1. Create Upstream Razorpay Order
-    const rzpOrder = await this.razorpay.createOrder({
-      amountInPaise,
-      currency: currency.toUpperCase(),
-    });
+    // 1. Create Upstream Razorpay Order protected by Bulkhead
+    const rzpOrder = await this.bulkhead.execute(() =>
+      this.razorpay.createOrder({
+        amountInPaise,
+        currency: currency.toUpperCase(),
+      }),
+    );
 
     // 2. Persist Payment in payment_db (status: INITIATED)
     const payment = await this.paymentRepo.createPayment({
@@ -179,12 +184,14 @@ export class PaymentService {
     const amountInPaise = Math.round(parseFloat(payment.amount) * 100);
 
     try {
-      // Call Razorpay Capture API outside DB transaction
-      await this.razorpay.capturePayment({
-        razorpayPaymentId: payment.razorpay_payment_id,
-        amountInPaise,
-        currency: payment.currency,
-      });
+      // Call Razorpay Capture API outside DB transaction protected by Bulkhead
+      await this.bulkhead.execute(() =>
+        this.razorpay.capturePayment({
+          razorpayPaymentId: payment.razorpay_payment_id,
+          amountInPaise,
+          currency: payment.currency,
+        }),
+      );
 
       // Atomic update to CAPTURED + Outbox event
       const updatedPayment = await this.paymentRepo.updatePaymentAtomic({
@@ -289,11 +296,13 @@ export class PaymentService {
     const amountInPaise = Math.round(parseFloat(payment.amount) * 100);
 
     try {
-      // 2. Call Razorpay Refund API outside DB transaction
-      const rzpRefund = await this.razorpay.refundPayment({
-        razorpayPaymentId: payment.razorpay_payment_id || `pay_${payment.id}`,
-        amountInPaise,
-      });
+      // 2. Call Razorpay Refund API outside DB transaction protected by Bulkhead
+      const rzpRefund = await this.bulkhead.execute(() =>
+        this.razorpay.refundPayment({
+          razorpayPaymentId: payment.razorpay_payment_id || `pay_${payment.id}`,
+          amountInPaise,
+        }),
+      );
 
       // 3. Complete refund atomically (PaymentRefund -> PROCESSED, Payment -> REFUNDED, Outbox -> payment.refunded)
       const { refund: completedRefund } = await this.refundRepo.completeRefundAtomic({

@@ -1,11 +1,9 @@
-import { successResponse, createLogger } from '@ecommerce/shared';
+import { successResponse, createLogger, CacheService, CacheKeys } from '@ecommerce/shared';
 
 import { config } from '../config/index.js';
 import { getRedisClient as defaultGetRedisClient } from '../lib/redis.js';
 
-const logger = createLogger({ service: 'gateway:admin-dashboard' });
-const STATS_CACHE_KEY = 'admin:dashboard:stats';
-const STATS_CACHE_TTL_SEC = 60;
+const _logger = createLogger({ service: 'gateway:admin-dashboard' });
 
 export class AdminDashboardController {
   constructor({
@@ -16,12 +14,23 @@ export class AdminDashboardController {
     this.getRedis = getRedis;
     this.serviceUrls = serviceUrls;
     this.fetchFn = fetchFn;
+    try {
+      const redis = typeof getRedis === 'function' ? getRedis() : null;
+      this.cache = new CacheService({
+        redisClient: redis,
+        enabled: config.cache?.enabled !== false,
+        defaultNamespace: 'admin',
+        defaultTtl: config.cache?.adminDashboardTtl || 60,
+      });
+    } catch {
+      this.cache = new CacheService({ redisClient: null, enabled: false });
+    }
   }
 
   /**
    * Helper to perform safe downstream HTTP calls with timeout
    */
-  async _safeFetch(url, timeoutMs = 2500) {
+  async _safeFetch(url, timeoutMs = 8000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const start = Date.now();
@@ -34,13 +43,20 @@ export class AdminDashboardController {
         headers: {
           'x-internal-gateway-secret': internalSecret,
           'x-user-role': 'ADMIN',
+          'x-user-id': '00000000-0000-0000-0000-000000000000',
+          'x-user-email': 'admin@platform.internal',
         },
       });
       const latencyMs = Date.now() - start;
-      if (!res.ok) {
-        return { ok: false, status: res.status, latencyMs };
+      let data = null;
+      try {
+        data = await res.json();
+      } catch {
+        // Non-JSON response
       }
-      const data = await res.json();
+      if (!res.ok) {
+        return { ok: false, status: res.status, data, latencyMs };
+      }
       return { ok: true, status: res.status, data, latencyMs };
     } catch (err) {
       return {
@@ -59,24 +75,16 @@ export class AdminDashboardController {
    */
   getDashboardStats = async (req, res, next) => {
     try {
-      const redis = this.getRedis();
-
-      // 1. Try reading from Redis Cache
-      if (redis) {
-        try {
-          const cached = await redis.get(STATS_CACHE_KEY);
-          if (cached) {
-            return res.status(200).json(
-              successResponse({
-                data: JSON.parse(cached),
-                requestId: req.id,
-                extraMeta: { cached: true, ttl: STATS_CACHE_TTL_SEC },
-              }),
-            );
-          }
-        } catch (err) {
-          logger.warn({ err: err.message }, 'Redis read failed for admin stats; computing live');
-        }
+      const cacheKey = CacheKeys.admin.dashboardStats();
+      const cached = await this.cache.get(cacheKey);
+      if (cached) {
+        return res.status(200).json(
+          successResponse({
+            data: cached,
+            requestId: req.id,
+            extraMeta: { cached: true, ttl: config.cache?.adminDashboardTtl || 60 },
+          }),
+        );
       }
 
       // 2. Aggregate Live Cross-Service Metrics Concurrently
@@ -229,20 +237,14 @@ export class AdminDashboardController {
         system,
       };
 
-      // 3. Cache in Redis (60s TTL)
-      if (redis) {
-        try {
-          await redis.set(STATS_CACHE_KEY, JSON.stringify(statsData), 'EX', STATS_CACHE_TTL_SEC);
-        } catch (err) {
-          logger.warn({ err: err.message }, 'Redis write failed for admin stats cache');
-        }
-      }
+      // 3. Cache in Redis
+      await this.cache.set(cacheKey, statsData, config.cache?.adminDashboardTtl || 60);
 
       return res.status(200).json(
         successResponse({
           data: statsData,
           requestId: req.id,
-          extraMeta: { cached: false, ttl: STATS_CACHE_TTL_SEC },
+          extraMeta: { cached: false, ttl: config.cache?.adminDashboardTtl || 60 },
         }),
       );
     } catch (err) {
@@ -257,7 +259,7 @@ export class AdminDashboardController {
   getAuditLogs = async (req, res, next) => {
     try {
       const {
-        page = 1,
+        page,
         limit = 20,
         service = null,
         eventType = null,
@@ -270,8 +272,13 @@ export class AdminDashboardController {
 
       // Build query string for forwarding
       const params = new URLSearchParams();
-      params.set('page', page);
+      if (page !== undefined && page !== null && page !== '') {
+        params.set('page', page);
+      }
       params.set('limit', limit);
+      if (req.query.cursor !== undefined && req.query.cursor !== null) {
+        params.set('cursor', req.query.cursor);
+      }
       if (service) {
         params.set('service', service);
       }
@@ -298,6 +305,9 @@ export class AdminDashboardController {
       const result = await this._safeFetch(url);
 
       if (!result.ok) {
+        if (result.status === 400 && result.data) {
+          return res.status(400).json(result.data);
+        }
         // Identity-svc is unreachable — return graceful degraded response
         return res.status(200).json(
           successResponse({

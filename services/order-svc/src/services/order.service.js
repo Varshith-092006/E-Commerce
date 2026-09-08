@@ -12,6 +12,11 @@ import {
   SecurityHeaders,
   PlatformPolicies,
   ErrorCodes,
+  CacheService,
+  CacheKeys,
+  parsePagination,
+  buildPaginationMeta,
+  mapConcurrent,
 } from '@ecommerce/shared';
 
 import { orderRepository as defaultOrderRepo } from '../repositories/order.repository.js';
@@ -52,6 +57,17 @@ export class OrderService {
     this.defaultTaxRate = defaultTaxRate;
     this.freeShippingThreshold = freeShippingThreshold;
     this.standardShippingFee = standardShippingFee;
+    try {
+      const redis = typeof getRedis === 'function' ? getRedis() : null;
+      this.cache = new CacheService({
+        redisClient: redis,
+        enabled: config.cache?.enabled !== false,
+        defaultNamespace: 'seller',
+        defaultTtl: config.cache?.analyticsTtl || 180,
+      });
+    } catch {
+      this.cache = new CacheService({ redisClient: null, enabled: false });
+    }
   }
 
   /**
@@ -444,39 +460,42 @@ export class OrderService {
         clearCartUserId = userId; // Cart will be cleared in the transaction
       }
 
-      // 6. Authoritative Re-fetch of Products, Live Prices, and Stock from catalog-svc
-      let subtotalCents = 0;
-      const orderItemsData = [];
+      // 6. Authoritative Re-fetch of Products, Live Prices, and Stock from catalog-svc (Bounded Concurrency)
+      const maxCatalogConcurrency = parseInt(process.env.MAX_CATALOG_CONCURRENCY, 10) || 5;
+      const orderItemsData = await mapConcurrent(
+        rawItems,
+        async (rawItem) => {
+          const product = await this._fetchProductFromCatalog(rawItem.productId, requestId);
+          if (!product) {
+            throw new NotFoundError(`Product '${rawItem.productId}' was not found in catalog`);
+          }
+          if (product.status !== 'PUBLISHED') {
+            throw new BusinessRuleError(
+              `Product '${product.title}' is no longer available for purchase`,
+            );
+          }
+          if (product.is_available === false) {
+            throw new BusinessRuleError(`Product '${product.title}' is currently out of stock`);
+          }
 
-      for (const rawItem of rawItems) {
-        const product = await this._fetchProductFromCatalog(rawItem.productId, requestId);
-        if (!product) {
-          throw new NotFoundError(`Product '${rawItem.productId}' was not found in catalog`);
-        }
-        if (product.status !== 'PUBLISHED') {
-          throw new BusinessRuleError(
-            `Product '${product.title}' is no longer available for purchase`,
-          );
-        }
-        if (product.is_available === false) {
-          throw new BusinessRuleError(`Product '${product.title}' is currently out of stock`);
-        }
+          const unitPrice = parseFloat(product.price);
+          const lineSubtotalCents = Math.round(unitPrice * rawItem.quantity * 100);
 
-        const unitPrice = parseFloat(product.price);
-        const lineSubtotalCents = Math.round(unitPrice * rawItem.quantity * 100);
-        subtotalCents += lineSubtotalCents;
+          return {
+            product_id: product.id,
+            seller_id: product.seller_id,
+            title: product.title,
+            unit_price: unitPrice.toFixed(2),
+            quantity: rawItem.quantity,
+            subtotal: (lineSubtotalCents / 100).toFixed(2),
+            lineSubtotalCents,
+            image_url: product.images?.[0]?.url || null,
+          };
+        },
+        maxCatalogConcurrency,
+      );
 
-        orderItemsData.push({
-          product_id: product.id,
-          seller_id: product.seller_id,
-          title: product.title,
-          unit_price: unitPrice.toFixed(2),
-          quantity: rawItem.quantity,
-          subtotal: (lineSubtotalCents / 100).toFixed(2),
-          image_url: product.images?.[0]?.url || null,
-        });
-      }
-
+      const subtotalCents = orderItemsData.reduce((sum, item) => sum + item.lineSubtotalCents, 0);
       const subtotal = subtotalCents / 100;
       const subtotalStr = subtotal.toFixed(2);
 
@@ -838,9 +857,11 @@ export class OrderService {
       throw new ValidationError('User ID is required');
     }
 
-    const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
-    const skip = (pageNum - 1) * limitNum;
+    const {
+      page: pageNum,
+      limit: limitNum,
+      skip,
+    } = parsePagination({ page, limit }, { defaultLimit: 20, maxLimit: 100 });
 
     // Parse comma-separated statuses if provided
     let statusFilter = [];
@@ -888,12 +909,7 @@ export class OrderService {
 
     return {
       items: formattedList,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        totalPages: Math.ceil(total / limitNum) || 1,
-      },
+      pagination: buildPaginationMeta({ page: pageNum, limit: limitNum, total }),
     };
   }
 
@@ -1117,9 +1133,11 @@ export class OrderService {
       throw new ForbiddenError('Customer accounts cannot access seller orders');
     }
 
-    const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 20));
-    const skip = (pageNum - 1) * limitNum;
+    const {
+      page: pageNum,
+      limit: limitNum,
+      skip,
+    } = parsePagination({ page, limit }, { defaultLimit: 20, maxLimit: 100 });
 
     let statusFilter = [];
     if (status && typeof status === 'string') {
@@ -1171,12 +1189,7 @@ export class OrderService {
 
     return {
       items: formattedList,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        totalPages: Math.ceil(total / limitNum) || 1,
-      },
+      pagination: buildPaginationMeta({ page: pageNum, limit: limitNum, total }),
     };
   }
 
@@ -1836,11 +1849,23 @@ export class OrderService {
       throw new ValidationError('startDate cannot be after endDate');
     }
 
-    return await this.orderRepo.getSellerAnalyticsOverview({
+    const cacheKey = CacheKeys.seller.analyticsOverview(
       sellerId,
-      startDate,
-      endDate,
-    });
+      startDate || 'all',
+      endDate || 'all',
+    );
+    return await this.cache.getOrSet(
+      cacheKey,
+      async () => {
+        return await this.orderRepo.getSellerAnalyticsOverview({
+          sellerId,
+          startDate,
+          endDate,
+        });
+      },
+      config.cache?.analyticsTtl || 180,
+      { stampedeProtection: true, lockTimeoutMs: 3000 },
+    );
   }
 
   async getSellerRevenueTimeline({
@@ -1872,12 +1897,25 @@ export class OrderService {
       throw new ValidationError('startDate cannot be after endDate');
     }
 
-    return await this.orderRepo.getSellerRevenueTimeline({
+    const cacheKey = CacheKeys.seller.analyticsTimeline(
       sellerId,
-      startDate,
-      endDate,
-      interval: interval.toLowerCase(),
-    });
+      startDate || 'all',
+      endDate || 'all',
+      interval.toLowerCase(),
+    );
+    return await this.cache.getOrSet(
+      cacheKey,
+      async () => {
+        return await this.orderRepo.getSellerRevenueTimeline({
+          sellerId,
+          startDate,
+          endDate,
+          interval: interval.toLowerCase(),
+        });
+      },
+      config.cache?.analyticsTtl || 180,
+      { stampedeProtection: true, lockTimeoutMs: 3000 },
+    );
   }
 
   async getSellerTopProducts({
@@ -1906,12 +1944,24 @@ export class OrderService {
       throw new ValidationError('startDate cannot be after endDate');
     }
 
-    return await this.orderRepo.getSellerTopProducts({
+    const cacheKey = CacheKeys.seller.analyticsTopProducts(
       sellerId,
-      startDate,
-      endDate,
-      limit: limitNum,
-    });
+      startDate || 'all',
+      `${endDate || 'all'}:${limitNum}`,
+    );
+    return await this.cache.getOrSet(
+      cacheKey,
+      async () => {
+        return await this.orderRepo.getSellerTopProducts({
+          sellerId,
+          startDate,
+          endDate,
+          limit: limitNum,
+        });
+      },
+      config.cache?.analyticsTtl || 180,
+      { stampedeProtection: true, lockTimeoutMs: 3000 },
+    );
   }
 }
 

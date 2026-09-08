@@ -326,7 +326,7 @@ export class PaymentController {
           _count: { id: true },
           _sum: { amount: true },
         }),
-        prisma.refund.count(),
+        prisma.paymentRefund.count(),
       ]);
 
       const capturedCount = capturedAgg._count.id || 0;

@@ -198,32 +198,26 @@ export class OrderOutboxWorker {
     const orderId = data.orderId || data.order_id || data.id || event.aggregate_id;
 
     if (this.useKafka) {
-      try {
-        const envelope = KafkaEventEnvelope.create({
-          eventId,
-          eventType,
-          sourceService: 'order-svc',
-          aggregateType: 'order',
-          aggregateId: String(orderId || ''),
-          traceId: rawPayload.traceId,
-          requestId: rawPayload.requestId,
-          correlationId: rawPayload.correlationId,
-          payload: data,
-        });
+      const envelope = KafkaEventEnvelope.create({
+        eventId,
+        eventType,
+        eventVersion: 1,
+        sourceService: 'order-svc',
+        aggregateType: 'order',
+        aggregateId: String(orderId || ''),
+        traceId: rawPayload.traceId,
+        requestId: rawPayload.requestId,
+        correlationId: rawPayload.correlationId,
+        payload: data,
+      });
 
-        await this.kafkaProducer.publish({
-          topic: KafkaTopics.ORDER_EVENTS,
-          key: String(orderId || eventId),
-          eventEnvelope: envelope,
-        });
+      await this.kafkaProducer.publish({
+        topic: KafkaTopics.ORDER_EVENTS,
+        key: String(orderId || eventId),
+        eventEnvelope: envelope,
+      });
 
-        return { processed: true, eventId, eventType, transport: 'kafka' };
-      } catch (kafkaErr) {
-        this.logger.warn(
-          { err: kafkaErr.message, eventId, eventType },
-          'Kafka publish failed in OrderOutboxWorker; attempting REST fallback',
-        );
-      }
+      return { processed: true, eventId, eventType, transport: 'kafka' };
     }
 
     // REST HTTP fallback for environments without Kafka broker running

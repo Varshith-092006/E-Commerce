@@ -170,7 +170,7 @@ export class NotificationController {
   getNotifications = async (req, res, next) => {
     try {
       const userId = this.getUserId(req);
-      const { page, limit, isRead, channel } = req.query;
+      const { page, limit, isRead, channel, cursor } = req.query;
 
       const result = await this.notificationService.getUserNotifications({
         userId,
@@ -178,6 +178,7 @@ export class NotificationController {
         isRead,
         page,
         limit,
+        cursor,
       });
 
       return res.status(200).json(

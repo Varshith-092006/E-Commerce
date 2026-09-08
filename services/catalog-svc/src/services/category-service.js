@@ -8,18 +8,27 @@ export class CategoryService {
   }
 
   async getCategoryTree({ activeOnly = true } = {}) {
-    const categories = await this.categoryRepo.findAll({ activeOnly });
-    // Build hierarchical tree
-    const rootCategories = categories.filter((cat) => !cat.parent_id);
-    const categoryMap = new Map(categories.map((c) => [c.id, { ...c, children: [] }]));
+    const loader = async () => {
+      const categories = await this.categoryRepo.findAll({ activeOnly });
+      // Build hierarchical tree
+      const rootCategories = categories.filter((cat) => !cat.parent_id);
+      const categoryMap = new Map(categories.map((c) => [c.id, { ...c, children: [] }]));
 
-    for (const cat of categories) {
-      if (cat.parent_id && categoryMap.has(cat.parent_id)) {
-        categoryMap.get(cat.parent_id).children.push(categoryMap.get(cat.id));
+      for (const cat of categories) {
+        if (cat.parent_id && categoryMap.has(cat.parent_id)) {
+          categoryMap.get(cat.parent_id).children.push(categoryMap.get(cat.id));
+        }
       }
+
+      return rootCategories.map((root) => categoryMap.get(root.id));
+    };
+
+    if (this.categoryRepo.cache && typeof this.categoryRepo.cache.getOrSet === 'function') {
+      const cacheKey = activeOnly ? 'catalog:categories:tree' : 'catalog:categories:tree:all';
+      return await this.categoryRepo.cache.getOrSet(cacheKey, loader, 900);
     }
 
-    return rootCategories.map((root) => categoryMap.get(root.id));
+    return await loader();
   }
 
   async createCategory(data) {

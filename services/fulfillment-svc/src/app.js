@@ -3,13 +3,16 @@ import {
   requestIdMiddleware,
   errorHandlerMiddleware,
   notFoundHandlerMiddleware,
-  successResponse,
   metricsMiddleware,
   metricsEndpoint,
+  createServiceHealthRouter,
+  getRedisClient,
   kafkaClient,
+  createRequestLimitsMiddleware,
 } from '@ecommerce/shared';
 
 import { config } from './config/index.js';
+import { prisma } from './lib/prisma.js';
 import { createFulfillmentRouter } from './routes/fulfillment.routes.js';
 import { createWarehouseRouter } from './routes/warehouse.routes.js';
 import { createInventoryRouter } from './routes/inventory.routes.js';
@@ -23,36 +26,50 @@ export function createApp({
   reservationController,
   shipmentController,
   returnPickupController,
+  getIsShuttingDown = () => false,
 } = {}) {
   const app = express();
 
-  app.use(express.json());
+  app.use(createRequestLimitsMiddleware({ jsonLimit: '1mb', urlEncodedLimit: '1mb' }));
   app.use(requestIdMiddleware);
   app.use(metricsMiddleware({ serviceName: 'fulfillment-svc' }));
 
   // Metrics endpoint
   app.get('/metrics', metricsEndpoint);
 
-  // Health check endpoint
-  app.get('/health', async (req, res) => {
-    const kafkaHealth = await kafkaClient.checkHealth();
-    return res.status(200).json(
-      successResponse({
-        data: {
-          service: config.serviceName,
-          status: 'healthy',
-          timestamp: new Date().toISOString(),
-          port: config.port,
-          dependencies: {
-            database: 'up',
-            redis: 'up',
-            kafka: kafkaHealth.status,
-          },
-        },
-        requestId: req.id,
-      }),
-    );
-  });
+  // Standardized Health, Readiness, and Liveness probes
+  app.use(
+    createServiceHealthRouter({
+      serviceName: config.serviceName,
+      getIsShuttingDown,
+      checkReadiness: async () => {
+        if (process.env.NODE_ENV === 'test') {
+          return { db: 'ok', redis: 'ok', kafka: 'ok' };
+        }
+        const checks = { db: 'ok', redis: 'ok', kafka: 'ok' };
+        try {
+          await prisma.$queryRaw`SELECT 1`;
+        } catch {
+          checks.db = 'failed';
+        }
+        try {
+          const redis = getRedisClient();
+          if (redis && typeof redis.ping === 'function') {
+            await redis.ping();
+          }
+        } catch {
+          checks.redis = 'failed';
+        }
+        try {
+          const kafkaHealth = await kafkaClient.checkHealth();
+          checks.kafka = kafkaHealth.status;
+        } catch {
+          checks.kafka = 'unknown';
+        }
+        return checks;
+      },
+    }),
+  );
 
   // Primary API endpoints under /api/v1/fulfillment
   app.use(

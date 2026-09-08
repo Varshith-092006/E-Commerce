@@ -36,6 +36,7 @@ services:
     image: redis:7-alpine
     container_name: ecommerce-redis
     restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 200mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
@@ -139,6 +140,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
       - prometheus_data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -297,7 +299,8 @@ services:
     environment:
       PORT: 4001
       NODE_ENV: production
-      DATABASE_URL: ${IDENTITY_DATABASE_URL}
+      DATABASE_URL: ${IDENTITY_DATABASE_URL:-postgresql://postgres:postgrespassword@postgres:5432/identity_db?schema=public}
+      REDIS_URL: redis://redis:6379
       INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
       JWT_SECRET: ${JWT_SECRET:-ecom_jwt_secret_dev_2026_test_key_32_chars}
     expose:
@@ -317,12 +320,12 @@ services:
     build:
       context: ..
       dockerfile: services/catalog-svc/Dockerfile
-    container_name: ecommerce-catalog-svc
     restart: unless-stopped
     environment:
       PORT: 4002
       NODE_ENV: production
-      DATABASE_URL: ${CATALOG_DATABASE_URL}
+      DATABASE_URL: ${CATALOG_DATABASE_URL:-postgresql://postgres:postgrespassword@postgres:5432/catalog_db?schema=public}
+      REDIS_URL: redis://redis:6379
       INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
     expose:
       - "4002"
@@ -341,12 +344,11 @@ services:
     build:
       context: ..
       dockerfile: services/order-svc/Dockerfile
-    container_name: ecommerce-order-svc
     restart: unless-stopped
     environment:
       PORT: 4003
       NODE_ENV: production
-      DATABASE_URL: ${ORDER_DATABASE_URL}
+      DATABASE_URL: ${ORDER_DATABASE_URL:-postgresql://postgres:postgrespassword@postgres:5432/order_db?schema=public}
       REDIS_URL: redis://redis:6379
       # IMPORTANT: Always use kafka:29092 (internal listener) inside containers
       KAFKA_BROKERS: kafka:29092
@@ -383,7 +385,7 @@ services:
     environment:
       PORT: 4004
       NODE_ENV: production
-      DATABASE_URL: ${PAYMENT_DATABASE_URL}
+      DATABASE_URL: ${PAYMENT_DATABASE_URL:-postgresql://postgres:postgrespassword@postgres:5432/payment_db?schema=public}
       REDIS_URL: redis://redis:6379
       KAFKA_BROKERS: kafka:29092
       INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
@@ -420,7 +422,7 @@ services:
     environment:
       PORT: 4005
       NODE_ENV: production
-      DATABASE_URL: ${FULFILLMENT_DATABASE_URL}
+      DATABASE_URL: ${FULFILLMENT_DATABASE_URL:-postgresql://postgres:postgrespassword@postgres:5432/fulfillment_db?schema=public}
       REDIS_URL: redis://redis:6379
       KAFKA_BROKERS: kafka:29092
       INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}
@@ -458,7 +460,7 @@ services:
     environment:
       PORT: 4006
       NODE_ENV: production
-      DATABASE_URL: ${NOTIFICATION_DATABASE_URL}
+      DATABASE_URL: ${NOTIFICATION_DATABASE_URL:-postgresql://postgres:postgrespassword@postgres:5432/notification_db?schema=public}
       REDIS_URL: redis://redis:6379
       KAFKA_BROKERS: kafka:29092
       INTERNAL_GATEWAY_SECRET: ${INTERNAL_GATEWAY_SECRET:-ecom_internal_mesh_secret_2026}

@@ -3,6 +3,8 @@ import jwt from 'jsonwebtoken';
 import { UnauthorizedError } from '../errors/specific-errors.js';
 import { PlatformPolicies } from '../constants/policies.js';
 
+import { validateProductionSecret } from './secret-validator.js';
+
 const DEFAULT_JWT_SECRET = 'ecom_default_jwt_secret_dev_only_change_in_prod';
 const DEFAULT_REFRESH_SECRET = 'ecom_default_refresh_secret_dev_only_change_in_prod';
 
@@ -16,6 +18,14 @@ export function generateAccessToken(
   payload,
   secret = process.env.JWT_SECRET || DEFAULT_JWT_SECRET,
 ) {
+  if (process.env.NODE_ENV === 'production') {
+    validateProductionSecret({
+      name: 'JWT_SECRET',
+      value: secret,
+      env: 'production',
+      exitOnFailure: false,
+    });
+  }
   return jwt.sign(payload, secret, {
     expiresIn: PlatformPolicies.ACCESS_TOKEN_TTL_SECONDS,
   });
@@ -31,6 +41,14 @@ export function generateRefreshToken(
   payload,
   secret = process.env.JWT_REFRESH_SECRET || DEFAULT_REFRESH_SECRET,
 ) {
+  if (process.env.NODE_ENV === 'production') {
+    validateProductionSecret({
+      name: 'JWT_REFRESH_SECRET',
+      value: secret,
+      env: 'production',
+      exitOnFailure: false,
+    });
+  }
   return jwt.sign(payload, secret, {
     expiresIn: PlatformPolicies.REFRESH_TOKEN_TTL_SECONDS,
   });
@@ -43,6 +61,14 @@ export function generateRefreshToken(
  * @returns {Object} Decoded payload
  */
 export function verifyAccessToken(token, secret = process.env.JWT_SECRET || DEFAULT_JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    validateProductionSecret({
+      name: 'JWT_SECRET',
+      value: secret,
+      env: 'production',
+      exitOnFailure: false,
+    });
+  }
   try {
     return jwt.verify(token, secret);
   } catch (error) {
@@ -63,6 +89,14 @@ export function verifyRefreshToken(
   token,
   secret = process.env.JWT_REFRESH_SECRET || DEFAULT_REFRESH_SECRET,
 ) {
+  if (process.env.NODE_ENV === 'production') {
+    validateProductionSecret({
+      name: 'JWT_REFRESH_SECRET',
+      value: secret,
+      env: 'production',
+      exitOnFailure: false,
+    });
+  }
   try {
     return jwt.verify(token, secret);
   } catch (error) {

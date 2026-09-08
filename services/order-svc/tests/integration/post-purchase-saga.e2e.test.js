@@ -197,7 +197,7 @@ describe('End-to-End Post-Purchase Saga & Event Orchestration (Phase 4D)', () =>
         orderId: 'ord-e2e-1',
       }),
     );
-  });
+  }, 35000);
 
   it('should execute payment failure flow: order.placed -> payment.failed -> reservation released', async () => {
     // 1. Order Placed

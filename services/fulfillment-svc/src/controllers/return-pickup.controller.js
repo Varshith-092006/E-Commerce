@@ -200,25 +200,29 @@ export class ReturnPickupController {
   getAdminSummary = async (req, res, next) => {
     try {
       const { prisma } = await import('../lib/prisma.js');
-      const [totalReturns, statusCounts, pendingCount, completedCount, rejectedCount] =
-        await Promise.all([
-          prisma.returnRequest.count(),
-          prisma.returnRequest.groupBy({
-            by: ['status'],
-            _count: { id: true },
-          }),
-          prisma.returnRequest.count({
-            where: {
-              status: { in: ['REQUESTED', 'APPROVED', 'PICKUP_SCHEDULED'] },
-            },
-          }),
-          prisma.returnRequest.count({ where: { status: 'COMPLETED' } }),
-          prisma.returnRequest.count({ where: { status: 'REJECTED' } }),
-        ]);
+      const statusCounts = await prisma.returnPickup.groupBy({
+        by: ['status'],
+        _count: { id: true },
+      });
 
       const returnsByStatus = {};
+      let totalReturns = 0;
+      let pendingCount = 0;
+      let completedCount = 0;
+      let rejectedCount = 0;
+
       for (const s of statusCounts) {
-        returnsByStatus[s.status] = s._count.id;
+        const count = s._count.id;
+        returnsByStatus[s.status] = count;
+        totalReturns += count;
+
+        if (['REQUESTED', 'PICKUP_SCHEDULED', 'OUT_FOR_PICKUP'].includes(s.status)) {
+          pendingCount += count;
+        } else if (s.status === 'COMPLETED') {
+          completedCount += count;
+        } else if (s.status === 'REJECTED') {
+          rejectedCount += count;
+        }
       }
 
       return res.status(200).json(

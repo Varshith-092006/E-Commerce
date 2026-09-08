@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 
-import { createLogger } from '@ecommerce/shared';
+import { createLogger, mapConcurrent } from '@ecommerce/shared';
 
 import { NotificationOutboxRepository } from '../repositories/notification-outbox.repository.js';
 import { EmailProvider } from '../services/providers/email.provider.js';
@@ -37,6 +37,7 @@ export class NotificationOutboxWorker {
     smsProvider = new SmsProvider(),
     pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
     batchSize = DEFAULT_BATCH_SIZE,
+    concurrency = null,
     workerId = WORKER_ID,
   } = {}) {
     this.outboxRepo = outboxRepo;
@@ -44,6 +45,10 @@ export class NotificationOutboxWorker {
     this.smsProvider = smsProvider;
     this.pollIntervalMs = pollIntervalMs;
     this.batchSize = batchSize;
+    this.concurrency =
+      concurrency !== null && concurrency !== undefined
+        ? Math.max(1, parseInt(concurrency, 10) || 5)
+        : Math.max(1, parseInt(process.env.MAX_NOTIFICATION_CONCURRENCY, 10) || 5);
     this.workerId = workerId;
 
     this._timer = null;
@@ -135,8 +140,8 @@ export class NotificationOutboxWorker {
 
     logger.debug({ count: records.length, workerId: this.workerId }, 'Processing outbox records');
 
-    // Process records in parallel (bounded by batchSize)
-    await Promise.allSettled(records.map((record) => this._dispatch(record)));
+    // Process records with bounded concurrency (MAX_NOTIFICATION_CONCURRENCY)
+    await mapConcurrent(records, (record) => this._dispatch(record), this.concurrency);
   }
 
   /**

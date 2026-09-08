@@ -67,32 +67,26 @@ export class FulfillmentOutboxWorker {
       payload.orderId || payload.order_id || payload.shipmentId || event.aggregate_id;
 
     if (this.useKafka) {
-      try {
-        const envelope = KafkaEventEnvelope.create({
-          eventId,
-          eventType,
-          sourceService: 'fulfillment-svc',
-          aggregateType: 'fulfillment',
-          aggregateId: String(aggregateId || ''),
-          traceId: rawPayload.traceId,
-          requestId: rawPayload.requestId,
-          correlationId: rawPayload.correlationId,
-          payload,
-        });
+      const envelope = KafkaEventEnvelope.create({
+        eventId,
+        eventType,
+        eventVersion: 1,
+        sourceService: 'fulfillment-svc',
+        aggregateType: 'fulfillment',
+        aggregateId: String(aggregateId || ''),
+        traceId: rawPayload.traceId,
+        requestId: rawPayload.requestId,
+        correlationId: rawPayload.correlationId,
+        payload,
+      });
 
-        await this.kafkaProducer.publish({
-          topic: KafkaTopics.FULFILLMENT_EVENTS,
-          key: String(aggregateId || eventId),
-          eventEnvelope: envelope,
-        });
+      await this.kafkaProducer.publish({
+        topic: KafkaTopics.FULFILLMENT_EVENTS,
+        key: String(aggregateId || eventId),
+        eventEnvelope: envelope,
+      });
 
-        return { processed: true, eventId, eventType, transport: 'kafka' };
-      } catch (kafkaErr) {
-        this.logger.warn(
-          { err: kafkaErr.message, eventId, eventType },
-          'Kafka publish failed in FulfillmentOutboxWorker; attempting REST fallback',
-        );
-      }
+      return { processed: true, eventId, eventType, transport: 'kafka' };
     }
 
     // Forward to notification-svc event ingestion (REST fallback)

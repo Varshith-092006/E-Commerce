@@ -1,0 +1,74 @@
+groups:
+  - name: ecommerce-alerts
+    rules:
+      - alert: HighErrorRate
+        expr: (sum(rate(http_request_errors_total[5m])) by (service) / sum(rate(http_requests_total[5m])) by (service)) * 100 > 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP error rate (> 5%) on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} HTTP error rate is {{ $value | printf \"%.2f\" }}% over the last 5 minutes."
+
+      - alert: HighP95Latency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High P95 latency (> 1s) on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} P95 latency is {{ $value | printf \"%.3f\" }}s over the last 5 minutes."
+
+      - alert: KafkaConsumerLagHigh
+        expr: sum(kafka_consumer_lag) by (group, topic) > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag high (> 1000) on topic {{ $labels.topic }}"
+          description: "Consumer group {{ $labels.group }} on topic {{ $labels.topic }} has a lag of {{ $value }} messages."
+
+      - alert: KafkaDLQIncrease
+        expr: sum(rate(kafka_dlq_messages_total[5m])) by (topic) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka DLQ counter continuously increasing on topic {{ $labels.topic }}"
+          description: "Topic {{ $labels.topic }} is receiving messages in the dead letter queue at rate {{ $value }}/s."
+
+      - alert: HighCPU
+        expr: (rate(process_cpu_seconds_total[5m]) * 100) > 80 or process_cpu_usage_ratio > 0.80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage (> 80%) on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} CPU usage is over 80%."
+
+      - alert: HighMemory
+        expr: (process_resident_memory_bytes / 1073741824) > 0.80 or (nodejs_heap_size_used_bytes / nodejs_heap_size_total_bytes) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage (> 80%) on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} memory usage is over 80%."
+
+      - alert: DBConnectionPressure
+        expr: (db_pool_connections_active / (db_pool_connections_active + db_pool_connections_idle)) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB connection pool pressure (> 80%) on {{ $labels.service }}"
+          description: "Service {{ $labels.service }} database connection pool utilization is {{ $value | printf \"%.2f\" }}%."
+
+      - alert: RedisMemoryPressure
+        expr: redis_memory_used_ratio * 100 > 80 or (redis_memory_used_bytes / redis_memory_max_bytes) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory pressure (> 80%)"
+          description: "Redis memory utilization is over 80%."

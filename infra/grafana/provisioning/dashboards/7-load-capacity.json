@@ -1,0 +1,89 @@
+{
+  "id": null,
+  "uid": "7-load-capacity",
+  "title": "7. Load & Capacity Management",
+  "tags": ["ecommerce", "phase5", "capacity"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "In-Flight Concurrency vs Max Limit (150)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "load_shedding_active_requests or sum(http_active_requests)",
+          "legendFormat": "Active In-Flight Requests",
+          "refId": "A"
+        },
+        {
+          "expr": "vector(150)",
+          "legendFormat": "Max Concurrency Limit",
+          "refId": "B"
+        },
+        {
+          "expr": "vector(120)",
+          "legendFormat": "Lower Priority Threshold (80%)",
+          "refId": "C"
+        },
+        {
+          "expr": "vector(142)",
+          "legendFormat": "Important Threshold (95%)",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Load Shedding Rejections (HTTP 503)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(load_shedding_rejected_total[1m])) by (priority) or vector(0)",
+          "legendFormat": "Shed {{priority}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Rate Limit 429 Responses",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status_code=\"429\"}[1m])) by (service) or vector(0)",
+          "legendFormat": "429 Rate Limit {{service}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "System Saturation Indicators",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "clamp_max((sum(http_active_requests) / 150) * 100, 100)",
+          "legendFormat": "Gateway Saturation %",
+          "refId": "A"
+        },
+        {
+          "expr": "clamp_max((db_pool_connections_active / clamp_min(db_pool_connections_total, 1)) * 100, 100) or vector(0)",
+          "legendFormat": "DB Pool Saturation %",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

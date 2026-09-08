@@ -1,3 +1,10 @@
+import {
+  parseCursorPagination,
+  buildCursorPaginationMeta,
+  parsePagination,
+  buildPaginationMeta,
+} from '@ecommerce/shared';
+
 import { prisma } from '../lib/prisma.js';
 
 /**
@@ -45,11 +52,13 @@ export class AuditLogRepository {
   }
 
   /**
-   * Queries audit logs with pagination and filters
+   * Queries audit logs with pagination and filters.
+   * Supports both keyset cursor pagination and standard offset pagination.
    */
   async findMany({
-    page = 1,
+    page = null,
     limit = 20,
+    cursor = null,
     service = null,
     eventType = null,
     actorId = null,
@@ -59,10 +68,6 @@ export class AuditLogRepository {
     fromDate = null,
     toDate = null,
   }) {
-    const pageNum = Math.max(1, parseInt(page, 10) || 1);
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 20));
-    const skip = (pageNum - 1) * limitNum;
-
     const where = {};
     if (service) {
       where.service = service;
@@ -92,24 +97,70 @@ export class AuditLogRepository {
       }
     }
 
+    // Keyset cursor pagination path (no offset, deterministic ordering)
+    const shouldUseCursor =
+      (cursor !== undefined && cursor !== null) ||
+      page === undefined ||
+      page === null ||
+      page === '';
+
+    if (shouldUseCursor) {
+      const { cursor: decodedCursor, limit: limitNum } = parseCursorPagination(
+        { cursor, limit },
+        { defaultLimit: 20, maxLimit: 100 },
+      );
+
+      if (decodedCursor) {
+        where.AND = where.AND || [];
+        where.AND.push({
+          OR: [
+            { created_at: { lt: new Date(decodedCursor.createdAt) } },
+            {
+              created_at: new Date(decodedCursor.createdAt),
+              id: { lt: decodedCursor.id },
+            },
+          ],
+        });
+      }
+
+      const items = await this.db.auditLog.findMany({
+        where,
+        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+        take: limitNum + 1,
+      });
+
+      return buildCursorPaginationMeta({
+        items,
+        limit: limitNum,
+        getCursorFn: (item) => ({
+          id: item.id,
+          createdAt: item.created_at ? new Date(item.created_at).toISOString() : null,
+        }),
+      });
+    }
+
+    // Standard offset pagination fallback
+    const {
+      page: pageNum,
+      limit: limitNum,
+      skip,
+    } = parsePagination({ page, limit }, { defaultLimit: 20, maxLimit: 100 });
+
     const [items, total] = await Promise.all([
       this.db.auditLog.findMany({
         where,
-        orderBy: { created_at: 'desc' },
+        orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
         skip,
         take: limitNum,
       }),
       this.db.auditLog.count({ where }),
     ]);
 
+    const meta = buildPaginationMeta({ page: pageNum, limit: limitNum, total });
+
     return {
       items,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total,
-        totalPages: Math.ceil(total / limitNum),
-      },
+      pagination: meta.pagination,
     };
   }
 }

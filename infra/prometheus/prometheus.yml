@@ -4,6 +4,9 @@ global:
   external_labels:
     environment: 'ecommerce-platform'
 
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
 # ─── Scrape Configurations ────────────────────────────────────────────────────
 # All services expose /metrics via prom-client (metricsEndpoint middleware)
 

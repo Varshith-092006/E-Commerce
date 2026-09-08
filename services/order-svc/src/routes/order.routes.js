@@ -98,12 +98,18 @@ export function createOrderRouter({ controller = orderController } = {}) {
     controller.getSellerRevenueTimeline,
   );
   router.get(
+    '/seller/analytics/timeline',
+    requireSellerOrAdmin,
+    controller.getSellerRevenueTimeline,
+  );
+  router.get(
     '/seller/analytics/top-products',
     requireSellerOrAdmin,
     controller.getSellerTopProducts,
   );
   router.get('/analytics/overview', requireSellerOrAdmin, controller.getSellerAnalyticsOverview);
   router.get('/analytics/revenue', requireSellerOrAdmin, controller.getSellerRevenueTimeline);
+  router.get('/analytics/timeline', requireSellerOrAdmin, controller.getSellerRevenueTimeline);
   router.get('/analytics/top-products', requireSellerOrAdmin, controller.getSellerTopProducts);
 
   // Customer Order Placement

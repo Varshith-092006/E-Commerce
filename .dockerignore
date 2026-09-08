@@ -1,0 +1,11 @@
+node_modules
+**/node_modules
+apps
+docs
+.git
+.gemini
+.next
+**/.next
+coverage
+.husky
+*.log

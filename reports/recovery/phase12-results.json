@@ -1,0 +1,62 @@
+{
+  "timestamp": "2026-09-08T12:03:36.478Z",
+  "status": "PASS",
+  "verdictDescription": "All 6 microservice databases, Redis cache, Kafka messaging mesh, transactional outbox, and edge routing successfully reconstructed and validated with 100% data equivalence.",
+  "rpoRto": {
+    "rpo": {
+      "type": "MEASURED LOCAL BENCHMARK",
+      "rpoDurationMs": 67107784,
+      "rpoSeconds": 67108,
+      "rpoFormatted": "1118m 28s",
+      "productionTarget": "15–60 minutes (periodic snapshots) or <= 5 minutes (WAL streaming)",
+      "disclaimer": "Empirical local snapshot measurement; not a production cloud SLA."
+    },
+    "rto": {
+      "type": "MEASURED LOCAL BENCHMARK",
+      "rtoDurationMs": 26788,
+      "rtoSeconds": 27,
+      "rtoFormatted": "26.79s",
+      "totalDowntimeMs": 26790,
+      "totalDowntimeFormatted": "26.79s",
+      "productionTarget": "<= 60 minutes",
+      "disclaimer": "Empirical local recovery duration; not a production cloud SLA."
+    }
+  },
+  "baselineTotalRows": 29,
+  "recoveredTotalRows": 29,
+  "dataIntegrity": {
+    "intact": true,
+    "discrepancies": [],
+    "relationalInvariants": true
+  },
+  "kafkaRecovery": {
+    "healthy": true,
+    "topicsVerified": 6,
+    "partitions": 3,
+    "replicationFactor": 1
+  },
+  "servicesRecovery": {
+    "healthy": true,
+    "servicesChecked": 9
+  },
+  "smokeTests": [
+    {
+      "test": "Nginx Edge Health",
+      "passed": true
+    },
+    {
+      "test": "Public Catalog Read (HTTPS)",
+      "passed": true
+    },
+    {
+      "test": "API Gateway Health Aggregation",
+      "passed": true
+    }
+  ],
+  "knownLimitations": [
+    "Logical pg_dump snapshots reflect point-of-dump state; continuous WAL archiving needed for near-zero RPO in cloud production.",
+    "Single Kafka broker with Replication Factor = 1 is an engineering test constraint, not a production HA cluster (target: RF=3 across 3 AZs).",
+    "Local self-signed TLS certificates are used for edge testing, requiring automated ACME/Let's Encrypt in cloud production.",
+    "Measured local recovery duration is an empirical engineering benchmark, not a cloud SLA."
+  ]
+}

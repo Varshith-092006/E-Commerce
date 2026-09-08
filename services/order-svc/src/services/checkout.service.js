@@ -7,6 +7,7 @@ import {
   createLogger,
   SecurityHeaders,
   PlatformPolicies,
+  mapConcurrent,
 } from '@ecommerce/shared';
 
 import { cartRepository as defaultCartRepo } from '../repositories/cart.repository.js';
@@ -201,41 +202,44 @@ export class CheckoutService {
       }));
     }
 
-    // 3. Authoritative Re-fetch and Price Calculation from catalog-svc
-    let subtotalCents = 0;
-    const validatedItems = [];
+    // 3. Authoritative Re-fetch and Price Calculation from catalog-svc (Bounded Concurrency)
+    const maxCatalogConcurrency = parseInt(process.env.MAX_CATALOG_CONCURRENCY, 10) || 5;
+    const validatedItems = await mapConcurrent(
+      rawItems,
+      async (rawItem) => {
+        const product = await this._fetchProductFromCatalog(rawItem.productId, requestId);
+        if (!product) {
+          throw new NotFoundError(`Product '${rawItem.productId}' was not found in catalog`);
+        }
+        if (product.status !== 'PUBLISHED') {
+          throw new BusinessRuleError(`Product '${product.title}' is no longer published`);
+        }
+        if (product.is_available === false) {
+          throw new BusinessRuleError(`Product '${product.title}' is currently out of stock`);
+        }
 
-    for (const rawItem of rawItems) {
-      const product = await this._fetchProductFromCatalog(rawItem.productId, requestId);
-      if (!product) {
-        throw new NotFoundError(`Product '${rawItem.productId}' was not found in catalog`);
-      }
-      if (product.status !== 'PUBLISHED') {
-        throw new BusinessRuleError(`Product '${product.title}' is no longer published`);
-      }
-      if (product.is_available === false) {
-        throw new BusinessRuleError(`Product '${product.title}' is currently out of stock`);
-      }
+        const unitPrice = parseFloat(product.price);
+        if (isNaN(unitPrice) || unitPrice < 0) {
+          throw new BusinessRuleError(`Invalid product price for '${product.title}'`);
+        }
 
-      const unitPrice = parseFloat(product.price);
-      if (isNaN(unitPrice) || unitPrice < 0) {
-        throw new BusinessRuleError(`Invalid product price for '${product.title}'`);
-      }
+        const lineSubtotalCents = Math.round(unitPrice * rawItem.quantity * 100);
 
-      const lineSubtotalCents = Math.round(unitPrice * rawItem.quantity * 100);
-      subtotalCents += lineSubtotalCents;
+        return {
+          product_id: product.id,
+          seller_id: product.seller_id,
+          title: product.title,
+          price: unitPrice.toFixed(2),
+          quantity: rawItem.quantity,
+          subtotal: (lineSubtotalCents / 100).toFixed(2),
+          lineSubtotalCents,
+          image_url: product.images?.[0]?.url || null,
+        };
+      },
+      maxCatalogConcurrency,
+    );
 
-      validatedItems.push({
-        product_id: product.id,
-        seller_id: product.seller_id,
-        title: product.title,
-        price: unitPrice.toFixed(2),
-        quantity: rawItem.quantity,
-        subtotal: (lineSubtotalCents / 100).toFixed(2),
-        image_url: product.images?.[0]?.url || null,
-      });
-    }
-
+    const subtotalCents = validatedItems.reduce((sum, item) => sum + item.lineSubtotalCents, 0);
     const subtotal = subtotalCents / 100;
     const subtotalStr = subtotal.toFixed(2);
 

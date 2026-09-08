@@ -203,13 +203,13 @@ export class AdminUserController {
       const [totalUsers, activeUsers, roleCounts, totalSellers, sellerStatusCounts] =
         await Promise.all([
           this.userRepo.db.user.count(),
-          this.userRepo.db.user.count({ where: { status: 'ACTIVE' } }),
+          this.userRepo.db.user.count({ where: { is_active: true } }),
           this.userRepo.db.user.groupBy({
             by: ['role'],
             _count: { id: true },
           }),
-          this.userRepo.db.sellerProfile.count(),
-          this.userRepo.db.sellerProfile.groupBy({
+          this.userRepo.db.seller.count(),
+          this.userRepo.db.seller.groupBy({
             by: ['status'],
             _count: { id: true },
           }),

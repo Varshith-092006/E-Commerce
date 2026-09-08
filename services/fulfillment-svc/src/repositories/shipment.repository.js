@@ -1,8 +1,34 @@
+import { getRedisClient, CacheService, CacheKeys } from '@ecommerce/shared';
+
 import { prisma as defaultPrisma } from '../lib/prisma.js';
+import { config } from '../config/index.js';
 
 export class ShipmentRepository {
-  constructor(prismaClient = defaultPrisma) {
+  constructor(prismaClient = defaultPrisma, cacheService = null) {
     this.prisma = prismaClient;
+    if (cacheService) {
+      this.cache = cacheService;
+    } else {
+      try {
+        const redis = config.redisUrl ? getRedisClient(config.redisUrl) : null;
+        this.cache = new CacheService({
+          redisClient: redis,
+          enabled: config.cache?.enabled !== false,
+          defaultNamespace: 'shipment',
+          defaultTtl: config.cache?.shipmentTtl || 60,
+        });
+      } catch {
+        this.cache = new CacheService({ redisClient: null, enabled: false });
+      }
+    }
+  }
+
+  async invalidateShipmentCache(id, trackingNumber = null) {
+    const promises = [this.cache.delete(CacheKeys.fulfillment.shipment(id))];
+    if (trackingNumber) {
+      promises.push(this.cache.delete(CacheKeys.fulfillment.tracking(trackingNumber)));
+    }
+    await Promise.all(promises);
   }
 
   /**
@@ -67,16 +93,27 @@ export class ShipmentRepository {
    * Finds a shipment by ID with sorted tracking updates
    */
   async findById(id, tx = this.prisma) {
-    return await tx.shipment.findUnique({
-      where: { id },
-      include: {
-        warehouse: true,
-        items: true,
-        tracking_updates: {
-          orderBy: [{ recorded_at: 'asc' }, { id: 'asc' }],
-        },
+    if (!id) {
+      return null;
+    }
+    const cacheKey = CacheKeys.fulfillment.shipment(id);
+
+    return await this.cache.getOrSet(
+      cacheKey,
+      async () => {
+        return await tx.shipment.findUnique({
+          where: { id },
+          include: {
+            warehouse: true,
+            items: true,
+            tracking_updates: {
+              orderBy: [{ recorded_at: 'asc' }, { id: 'asc' }],
+            },
+          },
+        });
       },
-    });
+      config.cache?.shipmentTtl || 60,
+    );
   }
 
   /**
@@ -99,16 +136,27 @@ export class ShipmentRepository {
    * Finds a shipment by unique tracking number
    */
   async findByTrackingNumber(tracking_number, tx = this.prisma) {
-    return await tx.shipment.findUnique({
-      where: { tracking_number },
-      include: {
-        warehouse: true,
-        items: true,
-        tracking_updates: {
-          orderBy: [{ recorded_at: 'asc' }, { id: 'asc' }],
-        },
+    if (!tracking_number) {
+      return null;
+    }
+    const cacheKey = CacheKeys.fulfillment.tracking(tracking_number);
+
+    return await this.cache.getOrSet(
+      cacheKey,
+      async () => {
+        return await tx.shipment.findUnique({
+          where: { tracking_number },
+          include: {
+            warehouse: true,
+            items: true,
+            tracking_updates: {
+              orderBy: [{ recorded_at: 'asc' }, { id: 'asc' }],
+            },
+          },
+        });
       },
-    });
+      config.cache?.trackingTtl || 30,
+    );
   }
 
   /**
@@ -145,7 +193,7 @@ export class ShipmentRepository {
    * Updates shipment details and status
    */
   async updateShipmentStatus(id, updateData, tx = this.prisma) {
-    return await tx.shipment.update({
+    const updated = await tx.shipment.update({
       where: { id },
       data: updateData,
       include: {
@@ -156,6 +204,9 @@ export class ShipmentRepository {
         },
       },
     });
+
+    await this.invalidateShipmentCache(id, updated.tracking_number);
+    return updated;
   }
 
   /**
@@ -172,7 +223,7 @@ export class ShipmentRepository {
     },
     tx = this.prisma,
   ) {
-    return await tx.trackingUpdate.create({
+    const tracking = await tx.trackingUpdate.create({
       data: {
         shipment_id,
         status,
@@ -182,6 +233,15 @@ export class ShipmentRepository {
         recorded_at,
       },
     });
+
+    // Invalidate cached shipment after checkpoint update
+    const shipment = await tx.shipment.findUnique({
+      where: { id: shipment_id },
+      select: { tracking_number: true },
+    });
+    await this.invalidateShipmentCache(shipment_id, shipment?.tracking_number);
+
+    return tracking;
   }
 
   /**

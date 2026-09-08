@@ -1,25 +1,73 @@
+import { getRedisClient, CacheService, CacheKeys } from '@ecommerce/shared';
+
 import { prisma } from '../lib/prisma.js';
+import { config } from '../config/index.js';
 
 export class AddressRepository {
-  constructor(db = prisma) {
+  constructor(db = prisma, cacheService = null) {
     this.db = db;
+    if (cacheService) {
+      this.cache = cacheService;
+    } else {
+      try {
+        const redis = config.redisUrl ? getRedisClient(config.redisUrl) : null;
+        this.cache = new CacheService({
+          redisClient: redis,
+          enabled: config.cache?.enabled !== false,
+          defaultNamespace: 'identity',
+          defaultTtl: config.cache?.userProfileTtl || 300,
+        });
+      } catch {
+        this.cache = new CacheService({ redisClient: null, enabled: false });
+      }
+    }
   }
 
   async findById(id) {
-    return await this.db.address.findUnique({
-      where: { id },
-    });
+    if (!id) {
+      return null;
+    }
+    const cacheKey = CacheKeys.identity.address(id);
+
+    return await this.cache.getOrSet(
+      cacheKey,
+      async () => {
+        return await this.db.address.findUnique({
+          where: { id },
+        });
+      },
+      config.cache?.userProfileTtl || 300,
+    );
   }
 
   async findByUserId(userId) {
-    return await this.db.address.findMany({
-      where: { user_id: userId },
-      orderBy: [{ is_default: 'desc' }, { created_at: 'desc' }],
-    });
+    if (!userId) {
+      return [];
+    }
+    const cacheKey = CacheKeys.identity.userAddresses(userId);
+
+    return await this.cache.getOrSet(
+      cacheKey,
+      async () => {
+        return await this.db.address.findMany({
+          where: { user_id: userId },
+          orderBy: [{ is_default: 'desc' }, { created_at: 'desc' }],
+        });
+      },
+      config.cache?.userProfileTtl || 300,
+    );
+  }
+
+  async invalidateAddressCache(userId, addressId = null) {
+    const promises = [this.cache.delete(CacheKeys.identity.userAddresses(userId))];
+    if (addressId) {
+      promises.push(this.cache.delete(CacheKeys.identity.address(addressId)));
+    }
+    await Promise.all(promises);
   }
 
   async create(userId, data) {
-    return await this.db.$transaction(async (tx) => {
+    const created = await this.db.$transaction(async (tx) => {
       // Check if user currently has any addresses
       const count = await tx.address.count({ where: { user_id: userId } });
       const shouldBeDefault = data.isDefault || count === 0;
@@ -46,10 +94,13 @@ export class AddressRepository {
         },
       });
     });
+
+    await this.invalidateAddressCache(userId, created.id);
+    return created;
   }
 
   async update(id, userId, data) {
-    return await this.db.$transaction(async (tx) => {
+    const updated = await this.db.$transaction(async (tx) => {
       if (data.isDefault) {
         await tx.address.updateMany({
           where: { user_id: userId, is_default: true },
@@ -71,10 +122,13 @@ export class AddressRepository {
         },
       });
     });
+
+    await this.invalidateAddressCache(userId, id);
+    return updated;
   }
 
   async delete(id, userId) {
-    return await this.db.$transaction(async (tx) => {
+    const result = await this.db.$transaction(async (tx) => {
       const address = await tx.address.findUnique({ where: { id } });
       if (!address || address.user_id !== userId) {
         return null;
@@ -100,5 +154,10 @@ export class AddressRepository {
 
       return address;
     });
+
+    if (result) {
+      await this.invalidateAddressCache(userId, id);
+    }
+    return result;
   }
 }

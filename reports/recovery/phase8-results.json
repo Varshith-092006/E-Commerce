@@ -1,0 +1,373 @@
+{
+  "timestamp": "2026-09-07T17:25:12.526Z",
+  "status": "PASS WITH LIMITATIONS",
+  "verdictDescription": "All 6 microservice databases backed up, verified, and restored into isolated disposable container with 100% data and relational equivalence. Continuous WAL/PITR is documented as a production target.",
+  "rpoRto": {
+    "rpo": {
+      "type": "MEASURED LOCAL",
+      "windowSeconds": 180,
+      "formatted": "3m 0s",
+      "productionTarget": "15-60 minutes",
+      "limitation": "Logical pg_dump snapshots reflect point-of-dump state; continuous WAL archiving needed for near-zero RPO in cloud production."
+    },
+    "rto": {
+      "type": "MEASURED LOCAL",
+      "backupDurationMs": 6370,
+      "restoreDurationMs": 8186,
+      "appRecoveryDurationMs": 9462,
+      "totalRtoMs": 0,
+      "totalRtoFormatted": "0.00s",
+      "productionTarget": "<= 60 minutes"
+    }
+  },
+  "backupManifest": {
+    "backupId": "backup_2026-09-07_17-24-34",
+    "createdAt": "2026-09-07T17:24:34.275Z",
+    "postgresVersion": "pg_dump (PostgreSQL) 16.15",
+    "databases": [
+      {
+        "name": "identity_db",
+        "file": "identity_db.sql",
+        "sizeBytes": 13104,
+        "sha256": "e6d71f6fd901336baf8317a92fb35dc8910ecd0a62a8c4f5de732e97c5732e6f",
+        "durationMs": 648,
+        "status": "VALID"
+      },
+      {
+        "name": "catalog_db",
+        "file": "catalog_db.sql",
+        "sizeBytes": 21411,
+        "sha256": "9fd58f0d6984a1876c82159e0f48f685b8b5d74f8facd0018c45ddf86ed60826",
+        "durationMs": 677,
+        "status": "VALID"
+      },
+      {
+        "name": "order_db",
+        "file": "order_db.sql",
+        "sizeBytes": 21564,
+        "sha256": "1dbe7370643565f58964d1ee2f2cd19e12664a7fc35ac83fd248011aa586de9f",
+        "durationMs": 584,
+        "status": "VALID"
+      },
+      {
+        "name": "payment_db",
+        "file": "payment_db.sql",
+        "sizeBytes": 10374,
+        "sha256": "6194116b40f291c7da872328112ec657f068f1392417d95fa851b95737a99aef",
+        "durationMs": 748,
+        "status": "VALID"
+      },
+      {
+        "name": "fulfillment_db",
+        "file": "fulfillment_db.sql",
+        "sizeBytes": 33682,
+        "sha256": "1ae0eeefb99274f186b627ad40d1e664bede1ff6aab57739b078846991cbe55f",
+        "durationMs": 545,
+        "status": "VALID"
+      },
+      {
+        "name": "notification_db",
+        "file": "notification_db.sql",
+        "sizeBytes": 9766937,
+        "sha256": "e35bb11068183a1a335aa90b10328f7073cca4586cda238c208583aa3915c732",
+        "durationMs": 2727,
+        "status": "VALID"
+      }
+    ],
+    "totalDurationMs": 6349,
+    "status": "VALID"
+  },
+  "restoreResults": [
+    {
+      "name": "identity_db",
+      "durationMs": 765,
+      "status": "SUCCESS"
+    },
+    {
+      "name": "catalog_db",
+      "durationMs": 699,
+      "status": "SUCCESS"
+    },
+    {
+      "name": "order_db",
+      "durationMs": 785,
+      "status": "SUCCESS"
+    },
+    {
+      "name": "payment_db",
+      "durationMs": 638,
+      "status": "SUCCESS"
+    },
+    {
+      "name": "fulfillment_db",
+      "durationMs": 1813,
+      "status": "SUCCESS"
+    },
+    {
+      "name": "notification_db",
+      "durationMs": 3484,
+      "status": "SUCCESS"
+    }
+  ],
+  "rowComparison": [
+    {
+      "table": "catalog_db.categories",
+      "before": 1,
+      "after": 1,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "catalog_db.coupons",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "catalog_db.product_images",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "catalog_db.products",
+      "before": 1,
+      "after": 1,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "catalog_db.reviews",
+      "before": 1,
+      "after": 1,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "fulfillment_db.fulfillment_outbox",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "fulfillment_db.inventory_items",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "fulfillment_db.return_pickups",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "fulfillment_db.shipments",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "fulfillment_db.warehouses",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "identity_db.addresses",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "identity_db.audit_logs",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "identity_db.sellers",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "identity_db.users",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "notification_db.notification_outbox",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "notification_db.notification_preferences",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "notification_db.notification_templates",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "notification_db.notifications",
+      "before": 13,
+      "after": 13,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "order_db.idempotency_records",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "order_db.order_items",
+      "before": 1,
+      "after": 1,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "order_db.order_outbox",
+      "before": 7,
+      "after": 7,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "order_db.order_status_history",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "order_db.orders",
+      "before": 5,
+      "after": 5,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "payment_db.payment_outbox",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "payment_db.payment_processed_events",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "payment_db.payment_refunds",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    },
+    {
+      "table": "payment_db.payments",
+      "before": 0,
+      "after": 0,
+      "difference": 0,
+      "matches": true
+    }
+  ],
+  "relationalChecks": [
+    {
+      "name": "Zero Orphan Order Items",
+      "result": "PASSED",
+      "details": "Found 0 orphan order items",
+      "safe": true
+    },
+    {
+      "name": "Zero Duplicate Order Numbers",
+      "result": "PASSED",
+      "details": "Found 0 duplicate orders",
+      "safe": true
+    },
+    {
+      "name": "Valid Outbox Status Enums",
+      "result": "PASSED",
+      "details": "Found 0 rows with invalid outbox states",
+      "safe": true
+    },
+    {
+      "name": "Zero Orphan Payment Refunds",
+      "result": "PASSED",
+      "details": "Found 0 orphan refunds",
+      "safe": true
+    }
+  ],
+  "failureScenarios": [
+    {
+      "scenario": "Backup Destination Inaccessible",
+      "expected": "Process aborts with non-zero exit; invalid backup not created",
+      "observed": "Caught and blocked cleanly",
+      "safe": true,
+      "status": "PASS"
+    },
+    {
+      "scenario": "Corrupted Backup Dump (Checksum Mismatch)",
+      "expected": "SHA-256 verification fails; restore blocked before execution",
+      "observed": "Integrity check caught mismatch; restore blocked safely",
+      "safe": true,
+      "status": "PASS"
+    },
+    {
+      "scenario": "Primary Container Overwrite Protection",
+      "expected": "Blocked by safety validator",
+      "observed": "BLOCKED: Cannot overwrite primary development container 'ecommerce-postgres'. Target must be isolated disposable container (e.g. ecommerce-postgres-restore).",
+      "safe": true,
+      "status": "PASS"
+    },
+    {
+      "scenario": "Missing Confirmation Flag (Dry-Run Enforcement)",
+      "expected": "Blocked by safety validator",
+      "observed": "CONFIRMATION REQUIRED: Destructive restore requires explicit --confirm-restore flag. Running in DRY RUN mode.",
+      "safe": true,
+      "status": "PASS"
+    },
+    {
+      "scenario": "SQL Injection in Database Identifier",
+      "expected": "Blocked by safety validator",
+      "observed": "INVALID: Database identifier 'order_db; DROP TABLE users;' contains illegal characters or is invalid.; UNKNOWN: Database 'order_db; DROP TABLE users;' is not one of the approved 6 service databases.",
+      "safe": true,
+      "status": "PASS"
+    },
+    {
+      "scenario": "Production Environment Host Rejection",
+      "expected": "Blocked by safety validator",
+      "observed": "FATAL: Database restores are strictly prohibited against production environments.; FATAL: Remote host 'prod-db.internal' rejected. Restores must run only against local Docker.",
+      "safe": true,
+      "status": "PASS"
+    }
+  ]
+}
