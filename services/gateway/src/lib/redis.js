@@ -55,3 +55,18 @@ export async function checkRedisHealth() {
 export function isRedisConnected() {
   return isConnected;
 }
+
+export async function closeRedisClient() {
+  if (redisClient) {
+    try {
+      if (redisClient.status !== 'end') {
+        await redisClient.quit();
+      }
+    } catch {
+      redisClient.disconnect();
+    } finally {
+      redisClient = null;
+      isConnected = false;
+    }
+  }
+}

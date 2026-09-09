@@ -47,6 +47,24 @@ export function isRedisReady(client = sharedRedisClient) {
 }
 
 /**
+ * Gracefully disconnects and resets the shared Redis client.
+ * @returns {Promise<void>}
+ */
+export async function closeRedisClient() {
+  if (sharedRedisClient) {
+    try {
+      if (sharedRedisClient.status !== 'end') {
+        await sharedRedisClient.quit();
+      }
+    } catch {
+      sharedRedisClient.disconnect();
+    } finally {
+      sharedRedisClient = null;
+    }
+  }
+}
+
+/**
  * Executes a sliding-window rate limit check in Redis.
  * FAILS FAST if Redis is unavailable (per platform policy: no memory fallback).
  *

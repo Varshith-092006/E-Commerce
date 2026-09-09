@@ -1,6 +1,7 @@
 module.exports = {
   testEnvironment: 'node',
   testTimeout: 15000,
+  setupFilesAfterEnv: ['<rootDir>/tests/setup/jest.teardown.js'],
   transform: {},
   coverageDirectory: '<rootDir>/coverage',
   testMatch: [

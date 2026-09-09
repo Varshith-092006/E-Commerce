@@ -1,6 +1,13 @@
 import request from 'supertest';
 import { createApp } from '../../src/app.js';
-import { Roles, SellerStatus, generateAccessToken, SecurityHeaders } from '@ecommerce/shared';
+import {
+  Roles,
+  SellerStatus,
+  generateAccessToken,
+  SecurityHeaders,
+  closeRedisClient,
+} from '@ecommerce/shared';
+import { prisma } from '../../src/lib/prisma.js';
 
 describe('Identity Service API Integration Tests', () => {
   let app;
@@ -10,6 +17,19 @@ describe('Identity Service API Integration Tests', () => {
 
   beforeEach(() => {
     app = createApp();
+  });
+
+  afterAll(async () => {
+    try {
+      await closeRedisClient();
+    } catch {
+      // Ignore teardown errors
+    }
+    try {
+      await prisma.$disconnect();
+    } catch {
+      // Ignore teardown errors
+    }
   });
 
   describe('POST /api/v1/auth/register', () => {
